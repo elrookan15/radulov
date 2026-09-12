@@ -7,9 +7,12 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ```
 ├── .env.example                # Environment variables template
 ├── .gitignore                  # Git ignore rules for Python, virtualenvs, and secrets
+├── AGENTS.md                   # Apex agent directives and operational governance
 ├── README.md                   # Project documentation
 ├── requirements.txt            # Python dependencies
 ├── main.py                     # Entrypoint CLI runner for Gemini interactions
+├── archive/
+│   └── ai_studio_code.py       # Archived raw export from Google AI Studio
 └── prompts/
     └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
 ```

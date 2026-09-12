@@ -19,8 +19,13 @@ try:
 except ImportError:
     pass
 
-from google import genai
-from google.genai.errors import APIError
+try:
+    from google import genai
+    from google.genai.errors import APIError
+except ImportError:
+    genai = None  # type: ignore[assignment]
+    APIError = Exception  # type: ignore[assignment, misc]
+
 
 PROMPT_FILE = Path(__file__).parent / "prompts" / "aegis_system_prompt.md"
 DEFAULT_MODEL = "models/gemini-3.7-flash"
@@ -57,6 +62,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     """Main execution entrypoint."""
+    args = parse_args()
+
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.stderr.write(
@@ -66,7 +73,12 @@ def main() -> int:
         )
         return 1
 
-    args = parse_args()
+    if genai is None:
+        sys.stderr.write(
+            "ERROR: Required package 'google-genai' is not installed.\n"
+            "Install dependencies with: pip install -r requirements.txt\n"
+        )
+        return 1
 
     user_input = args.user_input
     if not user_input:
