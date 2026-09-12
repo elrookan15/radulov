@@ -41,6 +41,7 @@ class TestRadulovCore(unittest.TestCase):
             self.assertTrue(args.stream)
             self.assertEqual(args.files, [])
             self.assertFalse(args.chat)
+            self.assertIsNone(args.build_goal)
 
     def test_parse_args_custom(self):
         """Ensure custom model, thinking level, files, and chat flags work."""
@@ -54,6 +55,8 @@ class TestRadulovCore(unittest.TestCase):
                 custom_model,
                 "-i",
                 custom_input,
+                "-b",
+                "Build auth system",
                 "-f",
                 "main.py",
                 "-f",
@@ -69,11 +72,13 @@ class TestRadulovCore(unittest.TestCase):
             args = parse_args()
             self.assertEqual(args.model, custom_model)
             self.assertEqual(args.user_input, custom_input)
+            self.assertEqual(args.build_goal, "Build auth system")
             self.assertEqual(args.files, ["main.py", "README.md"])
             self.assertTrue(args.chat)
             self.assertEqual(args.thinking_level, "high")
             self.assertEqual(args.max_tokens, 32768)
             self.assertFalse(args.stream)
+
 
     def test_load_system_instruction_missing_file(self):
         """Ensure load_system_instruction raises FileNotFoundError on missing file."""

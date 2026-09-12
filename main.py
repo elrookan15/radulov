@@ -3,7 +3,8 @@
 
 Initializes the GenAI client with the Aegis system architecture, supporting
 real-time streaming, multi-turn stateful REPL conversations, repository
-file context injection, and grounded read-only engineering tools.
+file context injection, grounded read-only engineering tools, and the
+5-phase Autonomous Deep Research & Construction Pipeline.
 """
 
 from __future__ import annotations
@@ -23,7 +24,6 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-
 try:
     from dotenv import load_dotenv
 
@@ -38,6 +38,10 @@ except ImportError:
     genai = None  # type: ignore[assignment]
     APIError = Exception  # type: ignore[assignment, misc]
 
+from radulov.builder import execute_autonomous_build
+from radulov.researcher import conduct_deep_research
+from radulov.scanner import format_scan_summary, scan_repository
+from radulov.synthesizer import format_options_card, synthesize_dual_options
 from radulov.tools import (
     TOOL_DEFINITIONS,
     list_directory,
@@ -100,7 +104,7 @@ def format_file_context(file_paths: list[str | Path]) -> str:
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="RADULOV — Gemini Interaction Runner with Aegis Architecture"
+        description="RADULOV — Autonomous Engineering Intelligence (Aegis Architecture)"
     )
     parser.add_argument(
         "-m",
@@ -113,6 +117,13 @@ def parse_args() -> argparse.Namespace:
         "--input",
         dest="user_input",
         help="Input query/task for the model. If omitted in a TTY, launches interactive REPL.",
+    )
+    parser.add_argument(
+        "-b",
+        "--build",
+        dest="build_goal",
+        metavar="GOAL",
+        help="Trigger 5-Phase Autonomous Deep Research, Dual-Option Synthesis & Construction.",
     )
     parser.add_argument(
         "-f",
@@ -186,10 +197,7 @@ def execute_interaction(
     previous_interaction_id: str | None = None,
     enable_tools: bool = True,
 ) -> tuple[str, str | None]:
-    """Execute the interaction, handling both streaming and synchronous modes.
-
-    Returns a tuple of (full_output_text, new_interaction_id).
-    """
+    """Execute the interaction, handling both streaming and synchronous modes."""
     kwargs: dict[str, object] = {
         "model": model,
         "input": user_input,
@@ -229,6 +237,96 @@ def execute_interaction(
         interaction_id = getattr(interaction, "id", None)
 
     return "".join(output_chunks), interaction_id
+
+
+def run_autonomous_pipeline(
+    client: genai.Client,
+    user_goal: str,
+    model: str = DEFAULT_MODEL,
+    repo_root: Path = Path("."),
+) -> int:
+    """Execute the 5-Phase Deep Research, Dual-Option Synthesis & Construction Workflow."""
+    print("=" * 70)
+    print(f"RADULOV AUTONOMOUS SYNTHESIS & CONSTRUCTION ENGINE")
+    print(f"Goal: {user_goal}")
+    print("=" * 70)
+
+    # Stage 1: Ingest & Topology Extraction
+    print("\n[1/4] Scanning repository topology and dependencies...")
+    scan_data = scan_repository(repo_root)
+    codebase_summary = format_scan_summary(scan_data)
+    languages = ", ".join(scan_data["detected_languages"]) or "Generic"
+    print(f"  + Ingested {scan_data['total_files']} files (Detected: {languages}).")
+
+    # Stage 2: Bounded Live Research
+    print("\n[2/4] Conducting bounded deep ecosystem research & benchmarks (max 120s)...")
+    research_report = conduct_deep_research(
+        client=client,
+        user_goal=user_goal,
+        codebase_summary=codebase_summary,
+        timeout_sec=120.0,
+        model=model,
+    )
+    print("  + Deep research synthesis completed.")
+
+    # Stage 3: Dual-Option Synthesis
+    print("\n[3/4] Synthesizing Dual-Option Architecture Plans...")
+    try:
+        options = synthesize_dual_options(
+            client=client,
+            user_goal=user_goal,
+            codebase_summary=codebase_summary,
+            research_report=research_report,
+            model=model,
+        )
+        print(format_options_card(options))
+    except Exception as err:
+        sys.stderr.write(f"ERROR: Option synthesis failed: {err}\n")
+        return 1
+
+    # Stage 4: User Selection Gate
+    chosen_option: dict[str, Any] | None = None
+    while True:
+        try:
+            choice = input("Select option [1 for Option A, 2 for Option B, q to quit]: ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print("\nAborted.")
+            return 0
+
+        if choice in ("q", "quit", "exit"):
+            print("Construction aborted by user.")
+            return 0
+        if choice in ("1", "a", "option 1", "option a"):
+            chosen_option = options.get("option_a")
+            break
+        if choice in ("2", "b", "option 2", "option b"):
+            chosen_option = options.get("option_b")
+            break
+        print("Invalid choice. Please enter 1, 2, or q.")
+
+    if not chosen_option:
+        sys.stderr.write("ERROR: No valid option selected.\n")
+        return 1
+
+    # Stage 5: Autonomous Construction & Verification
+    print(f"\n[4/4] Executing Autonomous Construction & Verification for: {chosen_option.get('title', 'Selected Plan')}")
+    build_result = execute_autonomous_build(
+        client=client,
+        chosen_option=chosen_option,
+        user_goal=user_goal,
+        codebase_summary=codebase_summary,
+        repo_root=repo_root,
+        model=model,
+    )
+
+    print("\n" + "=" * 70)
+    print(f"BUILD STATUS: {build_result.get('status')}")
+    print(f"Generated Files: {len(build_result.get('written_files', []))}")
+    if build_result.get("repair_attempts", 0) > 0:
+        print(f"Self-Correction Loops: {build_result.get('repair_attempts')}")
+    print("=" * 70)
+
+    return 0 if build_result.get("status") == "SUCCESS" else 1
 
 
 def save_session_turn(
@@ -272,6 +370,7 @@ def run_chat_loop(
     print("=" * 65)
     print(f"RADULOV Interactive Console — Aegis Architecture ({model})")
     print("Commands:")
+    print("  /build <goal>  — Run Deep Research & Construction Pipeline")
     print("  /file <path>   — Attach file to context")
     print("  /read <path>   — Inspect file locally")
     print("  /grep <term>   — Search repository code")
@@ -307,6 +406,14 @@ def run_chat_loop(
             previous_interaction_id = None
             attached_files.clear()
             print("Conversation state reset. Started fresh session context.")
+            continue
+
+        if user_input.startswith("/build "):
+            goal_arg = user_input[7:].strip()
+            if goal_arg:
+                run_autonomous_pipeline(client, goal_arg, model=model)
+            else:
+                print("Usage: /build <feature or goal description>")
             continue
 
         # Local command shortcuts
@@ -407,13 +514,21 @@ def main() -> int:
         )
         return 1
 
+    client = genai.Client(api_key=api_key)
+
+    # If --build requested: run the 5-phase Deep Research & Construction Pipeline
+    if args.build_goal:
+        return run_autonomous_pipeline(
+            client=client,
+            user_goal=args.build_goal,
+            model=args.model,
+        )
+
     try:
         system_instruction = load_system_instruction(PROMPT_FILE)
     except FileNotFoundError as err:
         sys.stderr.write(f"ERROR: {err}\n")
         return 1
-
-    client = genai.Client(api_key=api_key)
 
     generation_config: dict[str, object] = {
         "max_output_tokens": args.max_tokens,

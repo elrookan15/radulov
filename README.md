@@ -6,6 +6,12 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 
 ## Features
 
+- **5-Phase Autonomous Synthesis & Construction (`--build / -b`)**:
+  1. **Topology Scan**: Rapid AST and dependency manifest extraction.
+  2. **Bounded Deep Research**: Google Search Grounded ecosystem investigation (strict 120s time cap).
+  3. **Dual-Option Synthesis**: Generates Option A (Streamlined/Native) vs. Option B (Advanced/Scalable).
+  4. **Human Selection Gate**: Interactive prompt awaiting your architectural approval.
+  5. **Aegis Construction & Self-Correction**: Synthesizes 100% complete files, writes unit tests, and verifies execution via the Red-Green-Verify loop.
 - **Aegis Architecture Governance**: Grounded by [prompts/aegis_system_prompt.md](prompts/aegis_system_prompt.md) and [AGENTS.md](AGENTS.md).
 - **Grounded Engineering Tools (`--tools`)**: Equips Aegis with local read-only tools (`read_file`, `list_directory`, `search_code`, `run_tests`) to prevent hallucinating file contents or test results.
 - **Stateful Multi-Turn REPL (`--chat`)**: Interactive console remembering context turns via Gemini Interactions server-side state.
@@ -26,19 +32,24 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ├── .gitignore                  # Git ignore rules for Python, virtualenvs, sessions, and secrets
 ├── AGENTS.md                   # Apex agent directives and operational governance
 ├── README.md                   # Project documentation
-├── pyproject.toml              # PEP 621 packaging & linter configuration
+├── pyproject.toml              # PEP 621 packaging & linter configuration (v0.3.0)
 ├── requirements.txt            # Python dependencies
-├── main.py                     # Entrypoint CLI runner with streaming and multi-turn REPL
+├── main.py                     # Entrypoint CLI runner with streaming, REPL, and build pipeline
 ├── radulov/
 │   ├── __init__.py             # Package declaration
-│   └── tools.py                # Grounded engineering tools (read, search, tree, test runner)
+│   ├── tools.py                # Grounded engineering tools (read, search, tree, test runner)
+│   ├── scanner.py              # Repository topology & manifest scanner
+│   ├── researcher.py           # Bounded Google Search Grounded research engine (120s SLA)
+│   ├── synthesizer.py          # Dual-option architectural plan synthesizer
+│   └── builder.py              # Autonomous code construction & Red-Green-Verify self-correction
 ├── archive/
 │   └── ai_studio_code.py       # Archived raw export from Google AI Studio
 ├── prompts/
 │   └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
 └── tests/
     ├── test_main.py            # CLI and runner unit tests (8 tests)
-    └── test_tools.py           # Grounded tools unit tests (7 tests)
+    ├── test_tools.py           # Grounded tools unit tests (7 tests)
+    └── test_pipeline.py        # Scanner, synthesizer, and builder unit tests (4 tests)
 ```
 
 ## Prerequisites
@@ -76,12 +87,19 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 
 ## Usage
 
-### 1. Interactive Multi-Turn REPL (`--chat`)
+### 1. Autonomous Deep Research & Construction (`--build / -b`)
+Trigger the full 5-stage research, dual-option synthesis, and construction workflow:
+```bash
+python main.py -b "Build a real-time Markdown live-preview component with code syntax highlighting"
+```
+
+### 2. Interactive Multi-Turn REPL (`--chat`)
 Launch an ongoing design session where Aegis remembers previous turns:
 ```bash
 python main.py --chat
 ```
 REPL commands available during a session:
+- `/build <goal>` — trigger autonomous deep research and construction from within the chat.
 - `/read <path>` — inspect a file locally with line numbers.
 - `/grep <term>` — search repository code for functions or keywords.
 - `/ls [path]` — display repository directory hierarchy.
@@ -91,13 +109,13 @@ REPL commands available during a session:
 - `/history` — view turn count and active interaction ID.
 - `/exit` — quit the console.
 
-### 2. Single-Shot Query with Repository Context (`-f / --file`)
+### 3. Single-Shot Query with Repository Context (`-f / --file`)
 Pass specific files for Aegis to analyze:
 ```bash
 python main.py -f main.py -f requirements.txt -i "Verify that this code conforms to Aegis Section 6 AI Feature Rules."
 ```
 
-### 3. Local Developer Utilities (No API Key Required)
+### 4. Local Developer Utilities (No API Key Required)
 Execute local repository inspections directly via CLI flags:
 ```bash
 # View clean repository file tree
@@ -110,7 +128,7 @@ python main.py --grep DEFAULT_MODEL
 python main.py --run-tests
 ```
 
-### 4. Custom Model & Thinking Controls
+### 5. Custom Model & Thinking Controls
 Customize model, thinking budget, and token limits:
 ```bash
 python main.py --model "models/gemini-3.7-flash" --thinking-level high --max-tokens 32768
@@ -123,7 +141,7 @@ python main.py --no-stream -i "Summarize database requirements."
 
 ## Testing
 
-Run the automated test suite (15 unit tests):
+Run the automated test suite (19 unit tests):
 ```bash
 python -m unittest discover -s tests -v
 # Or using the built-in CLI shortcut:
@@ -133,5 +151,7 @@ python main.py --run-tests
 ## Security & Best Practices
 
 - **Path Traversal Protection**: `radulov.tools` enforces strict bounds checking, forbidding reads outside the repository root.
+- **Bounded Research Budget**: `radulov.researcher` enforces a hard 120-second timeout ceiling to prevent runaway latency.
+- **Red-Green-Verify Self-Correction**: `radulov.builder` executes tests immediately after writing code; if tests fail, it diagnoses and repairs the defect automatically before completion.
 - **Never commit `.env`**: `.gitignore` is configured to block `.env` and credential files.
 - **Untrusted Model Output**: In accordance with `AGENTS.md` and `aegis_system_prompt.md`, model output must be validated before applying destructive changes to codebases or production systems.
