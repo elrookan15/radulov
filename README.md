@@ -1,20 +1,28 @@
 # RADULOV
 
+[![CI](https://github.com/elrookan15/radulov/actions/workflows/ci.yml/badge.svg)](https://github.com/elrookan15/radulov/actions/workflows/ci.yml)
+
 Autonomous engineering intelligence and Gemini client interface configured with the **Aegis** system architecture.
 
 ## Repository Structure
 
 ```
+├── .github/
+│   └── workflows/
+│       └── ci.yml              # GitHub Actions CI matrix (Python 3.10, 3.11, 3.12)
 ├── .env.example                # Environment variables template
 ├── .gitignore                  # Git ignore rules for Python, virtualenvs, and secrets
 ├── AGENTS.md                   # Apex agent directives and operational governance
 ├── README.md                   # Project documentation
+├── pyproject.toml              # PEP 621 packaging & linter configuration
 ├── requirements.txt            # Python dependencies
-├── main.py                     # Entrypoint CLI runner for Gemini interactions
+├── main.py                     # Entrypoint CLI runner with streaming support
 ├── archive/
 │   └── ai_studio_code.py       # Archived raw export from Google AI Studio
-└── prompts/
-    └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
+├── prompts/
+│   └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
+└── tests/
+    └── test_main.py            # Unit test suite
 ```
 
 ## Prerequisites
@@ -38,6 +46,8 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 2. Install dependencies:
    ```bash
    pip install -r requirements.txt
+   # Or install in editable mode:
+   pip install -e .
    ```
 
 3. Configure your API key:
@@ -50,7 +60,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 
 ## Usage
 
-### Interactive Mode
+### Interactive Mode (Real-Time Streaming)
 Run without arguments to prompt interactively:
 ```bash
 python main.py
@@ -68,10 +78,22 @@ Pipe prompt text via stdin:
 cat task.txt | python main.py
 ```
 
-### Custom Model
-Specify a different Gemini model using `--model` or `-m`:
+### Custom Model & Thinking Controls
+Customize model, thinking budget, and token limits:
 ```bash
-python main.py --model "models/gemini-3.7-flash" --input "Analyze system invariants."
+python main.py --model "models/gemini-3.7-flash" --thinking-level high --max-tokens 32768
+```
+
+To disable streaming and output the full response at once:
+```bash
+python main.py --no-stream -i "Summarize database requirements."
+```
+
+## Testing
+
+Run the automated test suite:
+```bash
+python -m unittest discover -s tests -v
 ```
 
 ## Security & Best Practices

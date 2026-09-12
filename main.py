@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """RADULOV — GenAI Interaction Client.
 
-Initializes the GenAI client with the Aegis system prompt and runs interactions
-against Gemini models.
+Initializes the GenAI client with the Aegis system prompt and runs streaming
+interactions against Gemini models.
 """
 
 from __future__ import annotations
@@ -26,9 +26,10 @@ except ImportError:
     genai = None  # type: ignore[assignment]
     APIError = Exception  # type: ignore[assignment, misc]
 
-
 PROMPT_FILE = Path(__file__).parent / "prompts" / "aegis_system_prompt.md"
-DEFAULT_MODEL = "models/gemini-3.7-flash"
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-3.7-flash")
+DEFAULT_THINKING_LEVEL = os.environ.get("GEMINI_THINKING_LEVEL", "medium")
+DEFAULT_MAX_TOKENS = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "65536"))
 
 
 def load_system_instruction(prompt_path: Path) -> str:
@@ -43,7 +44,7 @@ def load_system_instruction(prompt_path: Path) -> str:
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="RADULOV — Gemini Interaction Runner"
+        description="RADULOV — Gemini Interaction Runner with Aegis Architecture"
     )
     parser.add_argument(
         "-m",
@@ -57,7 +58,59 @@ def parse_args() -> argparse.Namespace:
         dest="user_input",
         help="Input query/task for the model. If omitted, prompts interactively.",
     )
+    parser.add_argument(
+        "--thinking-level",
+        choices=["low", "medium", "high"],
+        default=DEFAULT_THINKING_LEVEL,
+        help=f"Thinking budget level (default: {DEFAULT_THINKING_LEVEL})",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=DEFAULT_MAX_TOKENS,
+        help=f"Max output tokens (default: {DEFAULT_MAX_TOKENS})",
+    )
+    parser.add_argument(
+        "--stream",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Stream tokens to stdout in real time (default: --stream)",
+    )
     return parser.parse_args()
+
+
+def execute_interaction(
+    client: genai.Client,
+    model: str,
+    user_input: str,
+    system_instruction: str,
+    generation_config: dict[str, object],
+    stream: bool = True,
+) -> None:
+    """Execute the interaction, handling both streaming and synchronous modes."""
+    if stream:
+        for event in client.interactions.create(
+            model=model,
+            input=user_input,
+            system_instruction=system_instruction,
+            generation_config=generation_config,
+            stream=True,
+        ):
+            if getattr(event, "event_type", None) == "step.delta":
+                delta = getattr(event, "delta", None)
+                if getattr(delta, "type", None) == "text":
+                    print(delta.text, end="", flush=True)
+            elif getattr(event, "event_type", None) == "interaction.completed":
+                print()
+    else:
+        interaction = client.interactions.create(
+            model=model,
+            input=user_input,
+            system_instruction=system_instruction,
+            generation_config=generation_config,
+            stream=False,
+        )
+        print(interaction.output_text)
 
 
 def main() -> int:
@@ -104,18 +157,19 @@ def main() -> int:
     client = genai.Client(api_key=api_key)
 
     generation_config = {
-        "max_output_tokens": 65536,
-        "thinking_level": "medium",
+        "max_output_tokens": args.max_tokens,
+        "thinking_level": args.thinking_level,
     }
 
     try:
-        interaction = client.interactions.create(
+        execute_interaction(
+            client=client,
             model=args.model,
-            input=user_input,
+            user_input=user_input,
             system_instruction=system_instruction,
             generation_config=generation_config,
+            stream=args.stream,
         )
-        print(interaction.output_text)
         return 0
     except APIError as err:
         sys.stderr.write(f"API Error from Gemini service: {err}\n")
