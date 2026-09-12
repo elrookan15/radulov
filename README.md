@@ -7,8 +7,10 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ## Features
 
 - **Aegis Architecture Governance**: Grounded by [prompts/aegis_system_prompt.md](prompts/aegis_system_prompt.md) and [AGENTS.md](AGENTS.md).
+- **Grounded Engineering Tools (`--tools`)**: Equips Aegis with local read-only tools (`read_file`, `list_directory`, `search_code`, `run_tests`) to prevent hallucinating file contents or test results.
 - **Stateful Multi-Turn REPL (`--chat`)**: Interactive console remembering context turns via Gemini Interactions server-side state.
 - **Repository File Context Injection (`-f / --file`)**: Attach local source files directly into model reasoning context.
+- **CLI Development Shortcuts**: Direct developer tools for `--tree`, `--grep <query>`, and `--run-tests` without model invocation overhead.
 - **Real-Time Streaming**: Incremental token delivery via `step.delta` events with `--no-stream` fallback.
 - **Hyperparameter Controls**: Configurable thinking budget (`--thinking-level`), token limits (`--max-tokens`), and model targets (`--model`).
 - **Session Audit Logging**: Transcripts automatically recorded to local `.radulov/sessions/` (ignored by Git).
@@ -27,12 +29,16 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ├── pyproject.toml              # PEP 621 packaging & linter configuration
 ├── requirements.txt            # Python dependencies
 ├── main.py                     # Entrypoint CLI runner with streaming and multi-turn REPL
+├── radulov/
+│   ├── __init__.py             # Package declaration
+│   └── tools.py                # Grounded engineering tools (read, search, tree, test runner)
 ├── archive/
 │   └── ai_studio_code.py       # Archived raw export from Google AI Studio
 ├── prompts/
 │   └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
 └── tests/
-    └── test_main.py            # Unit test suite (8 tests)
+    ├── test_main.py            # CLI and runner unit tests (8 tests)
+    └── test_tools.py           # Grounded tools unit tests (7 tests)
 ```
 
 ## Prerequisites
@@ -76,6 +82,10 @@ Launch an ongoing design session where Aegis remembers previous turns:
 python main.py --chat
 ```
 REPL commands available during a session:
+- `/read <path>` — inspect a file locally with line numbers.
+- `/grep <term>` — search repository code for functions or keywords.
+- `/ls [path]` — display repository directory hierarchy.
+- `/test` — run the unit test suite and view actual results.
 - `/file <path>` — dynamically attach a repository file to the active conversation.
 - `/clear` — reset conversational state and start a fresh context.
 - `/history` — view turn count and active interaction ID.
@@ -84,13 +94,20 @@ REPL commands available during a session:
 ### 2. Single-Shot Query with Repository Context (`-f / --file`)
 Pass specific files for Aegis to analyze:
 ```bash
-python main.py -f main.py -f requirements.txt -i "Review this CLI architecture for security and edge cases."
+python main.py -f main.py -f requirements.txt -i "Verify that this code conforms to Aegis Section 6 AI Feature Rules."
 ```
 
-### 3. Pipe Mode
-Pipe prompt text or logs via stdin:
+### 3. Local Developer Utilities (No API Key Required)
+Execute local repository inspections directly via CLI flags:
 ```bash
-git diff | python main.py -i "Review this git diff according to Aegis code generation standards."
+# View clean repository file tree
+python main.py --tree
+
+# Search codebase for symbols
+python main.py --grep DEFAULT_MODEL
+
+# Run unit tests immediately
+python main.py --run-tests
 ```
 
 ### 4. Custom Model & Thinking Controls
@@ -106,12 +123,15 @@ python main.py --no-stream -i "Summarize database requirements."
 
 ## Testing
 
-Run the automated test suite:
+Run the automated test suite (15 unit tests):
 ```bash
 python -m unittest discover -s tests -v
+# Or using the built-in CLI shortcut:
+python main.py --run-tests
 ```
 
 ## Security & Best Practices
 
+- **Path Traversal Protection**: `radulov.tools` enforces strict bounds checking, forbidding reads outside the repository root.
 - **Never commit `.env`**: `.gitignore` is configured to block `.env` and credential files.
 - **Untrusted Model Output**: In accordance with `AGENTS.md` and `aegis_system_prompt.md`, model output must be validated before applying destructive changes to codebases or production systems.

@@ -2,8 +2,8 @@
 """RADULOV — Autonomous Engineering Intelligence & GenAI Client.
 
 Initializes the GenAI client with the Aegis system architecture, supporting
-real-time streaming, multi-turn stateful REPL conversations, and repository
-file context injection.
+real-time streaming, multi-turn stateful REPL conversations, repository
+file context injection, and grounded read-only engineering tools.
 """
 
 from __future__ import annotations
@@ -14,6 +14,15 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, Callable
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 try:
     from dotenv import load_dotenv
@@ -28,6 +37,18 @@ try:
 except ImportError:
     genai = None  # type: ignore[assignment]
     APIError = Exception  # type: ignore[assignment, misc]
+
+from radulov.tools import (
+    TOOL_DEFINITIONS,
+    list_directory,
+    read_file,
+    run_tests,
+    search_code,
+)
+
+TOOL_MAP: dict[str, Callable[..., Any]] = {
+    func.__name__: func for func in TOOL_DEFINITIONS
+}
 
 PROMPT_FILE = Path(__file__).parent / "prompts" / "aegis_system_prompt.md"
 SESSIONS_DIR = Path(__file__).parent / ".radulov" / "sessions"
@@ -107,6 +128,12 @@ def parse_args() -> argparse.Namespace:
         help="Force multi-turn interactive chat REPL mode.",
     )
     parser.add_argument(
+        "--tools",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Equip Aegis with local read-only repository inspection tools (default: --tools).",
+    )
+    parser.add_argument(
         "--thinking-level",
         choices=["low", "medium", "high"],
         default=DEFAULT_THINKING_LEVEL,
@@ -124,6 +151,28 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Stream tokens to stdout in real time (default: --stream)",
     )
+
+    # Local CLI shortcuts
+    parser.add_argument(
+        "--run-tests",
+        dest="cli_run_tests",
+        action="store_true",
+        help="Directly run local unit tests and exit.",
+    )
+    parser.add_argument(
+        "--grep",
+        dest="cli_grep",
+        metavar="QUERY",
+        help="Directly search codebase for a string and exit.",
+    )
+    parser.add_argument(
+        "--tree",
+        dest="cli_tree",
+        nargs="?",
+        const=".",
+        metavar="PATH",
+        help="Directly display the repository directory tree and exit.",
+    )
     return parser.parse_args()
 
 
@@ -135,6 +184,7 @@ def execute_interaction(
     generation_config: dict[str, object],
     stream: bool = True,
     previous_interaction_id: str | None = None,
+    enable_tools: bool = True,
 ) -> tuple[str, str | None]:
     """Execute the interaction, handling both streaming and synchronous modes.
 
@@ -148,6 +198,8 @@ def execute_interaction(
     }
     if previous_interaction_id:
         kwargs["previous_interaction_id"] = previous_interaction_id
+    if enable_tools:
+        kwargs["tools"] = TOOL_DEFINITIONS
 
     output_chunks: list[str] = []
     interaction_id: str | None = None
@@ -209,6 +261,7 @@ def run_chat_loop(
     generation_config: dict[str, object],
     initial_files: list[str],
     stream: bool = True,
+    enable_tools: bool = True,
 ) -> int:
     """Run an interactive multi-turn REPL loop maintaining server-side state."""
     session_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
@@ -216,10 +269,18 @@ def run_chat_loop(
     )
     session_file = SESSIONS_DIR / f"session_{session_timestamp}.jsonl"
 
-    print("=" * 60)
+    print("=" * 65)
     print(f"RADULOV Interactive Console — Aegis Architecture ({model})")
-    print("Commands: /file <path> (attach file), /clear (reset session), /exit (quit)")
-    print("=" * 60)
+    print("Commands:")
+    print("  /file <path>   — Attach file to context")
+    print("  /read <path>   — Inspect file locally")
+    print("  /grep <term>   — Search repository code")
+    print("  /ls [path]     — List directory tree")
+    print("  /test          — Run unit test suite")
+    print("  /clear         — Reset conversational state")
+    print("  /history       — View session metrics")
+    print("  /exit          — Quit console")
+    print("=" * 65)
 
     previous_interaction_id: str | None = None
     attached_files: list[str] = list(initial_files)
@@ -248,6 +309,25 @@ def run_chat_loop(
             print("Conversation state reset. Started fresh session context.")
             continue
 
+        # Local command shortcuts
+        if user_input.startswith("/read "):
+            print(read_file(user_input[6:].strip()))
+            continue
+
+        if user_input.startswith("/grep "):
+            print(search_code(user_input[6:].strip()))
+            continue
+
+        if user_input.startswith("/ls"):
+            sub_path = user_input[3:].strip() or "."
+            print(list_directory(sub_path))
+            continue
+
+        if user_input.startswith("/test"):
+            test_arg = user_input[5:].strip() or "tests"
+            print(run_tests(test_arg))
+            continue
+
         if user_input.startswith("/file "):
             file_arg = user_input[6:].strip()
             if Path(file_arg).is_file():
@@ -268,7 +348,6 @@ def run_chat_loop(
             file_context = format_file_context(attached_files)
             if file_context:
                 payload = f"Context files:\n{file_context}\n\nUser request:\n{user_input}"
-            # File context sent for this turn; retain in history via interaction state
             attached_files.clear()
 
         turn += 1
@@ -281,6 +360,7 @@ def run_chat_loop(
                 generation_config=generation_config,
                 stream=stream,
                 previous_interaction_id=previous_interaction_id,
+                enable_tools=enable_tools,
             )
             if new_id:
                 previous_interaction_id = new_id
@@ -297,6 +377,19 @@ def run_chat_loop(
 def main() -> int:
     """Main execution entrypoint."""
     args = parse_args()
+
+    # Handle direct CLI tool shortcuts without requiring API key
+    if args.cli_run_tests:
+        print(run_tests("tests"))
+        return 0
+
+    if args.cli_grep:
+        print(search_code(args.cli_grep))
+        return 0
+
+    if args.cli_tree is not None:
+        print(list_directory(args.cli_tree))
+        return 0
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -337,6 +430,7 @@ def main() -> int:
             generation_config=generation_config,
             initial_files=args.files,
             stream=args.stream,
+            enable_tools=args.tools,
         )
 
     # Single-shot execution mode
@@ -363,6 +457,7 @@ def main() -> int:
             system_instruction=system_instruction,
             generation_config=generation_config,
             stream=args.stream,
+            enable_tools=args.tools,
         )
         return 0
     except APIError as err:
