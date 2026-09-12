@@ -47,3 +47,7 @@ env/
 # OS files
 .DS_Store
 Thumbs.db
+
+# RADULOV local session transcripts
+.radulov/
+

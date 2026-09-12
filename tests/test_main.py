@@ -1,6 +1,8 @@
 """Tests for RADULOV main runner and repository integrity."""
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,8 +13,10 @@ from main import (
     DEFAULT_THINKING_LEVEL,
     PROMPT_FILE,
     execute_interaction,
+    format_file_context,
     load_system_instruction,
     parse_args,
+    save_session_turn,
 )
 
 
@@ -35,9 +39,11 @@ class TestRadulovCore(unittest.TestCase):
             self.assertEqual(args.thinking_level, DEFAULT_THINKING_LEVEL)
             self.assertEqual(args.max_tokens, DEFAULT_MAX_TOKENS)
             self.assertTrue(args.stream)
+            self.assertEqual(args.files, [])
+            self.assertFalse(args.chat)
 
     def test_parse_args_custom(self):
-        """Ensure custom model, thinking level, token budget, and stream flags work."""
+        """Ensure custom model, thinking level, files, and chat flags work."""
         custom_input = "Audit access control."
         custom_model = "models/gemini-3.1-pro-preview"
         with patch(
@@ -48,6 +54,11 @@ class TestRadulovCore(unittest.TestCase):
                 custom_model,
                 "-i",
                 custom_input,
+                "-f",
+                "main.py",
+                "-f",
+                "README.md",
+                "--chat",
                 "--thinking-level",
                 "high",
                 "--max-tokens",
@@ -58,6 +69,8 @@ class TestRadulovCore(unittest.TestCase):
             args = parse_args()
             self.assertEqual(args.model, custom_model)
             self.assertEqual(args.user_input, custom_input)
+            self.assertEqual(args.files, ["main.py", "README.md"])
+            self.assertTrue(args.chat)
             self.assertEqual(args.thinking_level, "high")
             self.assertEqual(args.max_tokens, 32768)
             self.assertFalse(args.stream)
@@ -66,6 +79,21 @@ class TestRadulovCore(unittest.TestCase):
         """Ensure load_system_instruction raises FileNotFoundError on missing file."""
         with self.assertRaises(FileNotFoundError):
             load_system_instruction(Path("non_existent_prompt.md"))
+
+    def test_format_file_context(self):
+        """Ensure format_file_context reads and demarcates local files correctly."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f1:
+            f1.write("print('hello')\n")
+            f1_path = Path(f1.name)
+
+        try:
+            context = format_file_context([f1_path, "non_existent_file.xyz"])
+            self.assertIn(f"--- BEGIN FILE: {f1_path.as_posix()} ---", context)
+            self.assertIn("print('hello')", context)
+            self.assertIn(f"--- END FILE: {f1_path.as_posix()} ---", context)
+        finally:
+            if f1_path.exists():
+                f1_path.unlink()
 
     def test_execute_interaction_streaming(self):
         """Ensure streaming events are correctly unpacked and printed."""
@@ -83,30 +111,39 @@ class TestRadulovCore(unittest.TestCase):
 
         event3 = MagicMock()
         event3.event_type = "interaction.completed"
+        event3.interaction.id = "int-12345"
 
         mock_client.interactions.create.return_value = [event1, event2, event3]
 
         with patch("builtins.print") as mock_print:
-            execute_interaction(
+            text, int_id = execute_interaction(
                 client=mock_client,
                 model="models/gemini-3.7-flash",
                 user_input="Test",
                 system_instruction="Prompt",
                 generation_config={"max_output_tokens": 1024},
                 stream=True,
+                previous_interaction_id="prev-001",
             )
+            self.assertEqual(text, "Hello world!")
+            self.assertEqual(int_id, "int-12345")
             mock_print.assert_any_call("Hello ", end="", flush=True)
             mock_print.assert_any_call("world!", end="", flush=True)
+
+            # Check that previous_interaction_id was passed
+            call_kwargs = mock_client.interactions.create.call_args[1]
+            self.assertEqual(call_kwargs["previous_interaction_id"], "prev-001")
 
     def test_execute_interaction_sync(self):
         """Ensure synchronous interaction mode outputs text directly."""
         mock_client = MagicMock()
         mock_interaction = MagicMock()
         mock_interaction.output_text = "Synchronous response text"
+        mock_interaction.id = "int-sync-99"
         mock_client.interactions.create.return_value = mock_interaction
 
         with patch("builtins.print") as mock_print:
-            execute_interaction(
+            text, int_id = execute_interaction(
                 client=mock_client,
                 model="models/gemini-3.7-flash",
                 user_input="Test",
@@ -114,7 +151,32 @@ class TestRadulovCore(unittest.TestCase):
                 generation_config={"max_output_tokens": 1024},
                 stream=False,
             )
+            self.assertEqual(text, "Synchronous response text")
+            self.assertEqual(int_id, "int-sync-99")
             mock_print.assert_called_with("Synchronous response text")
+
+    def test_save_session_turn(self):
+        """Ensure session turn logs are correctly appended to JSONL file."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            session_path = Path(f.name)
+
+        try:
+            save_session_turn(
+                session_file=session_path,
+                turn=1,
+                user_input="Design DB schema",
+                model_output="PostgreSQL with RLS",
+                interaction_id="int-abc-123",
+            )
+            content = session_path.read_text(encoding="utf-8").strip()
+            record = json.loads(content)
+            self.assertEqual(record["turn"], 1)
+            self.assertEqual(record["user_input"], "Design DB schema")
+            self.assertEqual(record["model_output"], "PostgreSQL with RLS")
+            self.assertEqual(record["interaction_id"], "int-abc-123")
+        finally:
+            if session_path.exists():
+                session_path.unlink()
 
 
 if __name__ == "__main__":
