@@ -56,6 +56,41 @@ class TestRadulovMCP(unittest.TestCase):
         self.assertEqual(res.get("text"), "SSE Document Content")
 
     @patch("urllib.request.urlopen")
+    def test_call_tool_multiline_sse_response(self, mock_urlopen):
+        """Ensure call_tool joins multi-line SSE data frames before parsing JSON."""
+        mock_response = MagicMock()
+        sse_payload = (
+            "event: message\n"
+            'data: {"jsonrpc": "2.0",\n'
+            'data: "id": 1,\n'
+            'data: "result": {"text": "SSE Document Content"}}\n\n'
+        )
+        mock_response.read.return_value = sse_payload.encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        client = MCPClient("https://gemini-api-docs-mcp.dev")
+        res = client.call_tool("gemini_get_doc", {"chunk_id": "chunk_01"})
+        self.assertEqual(res.get("text"), "SSE Document Content")
+
+    @patch("urllib.request.urlopen")
+    def test_call_tool_multiple_sse_events(self, mock_urlopen):
+        """Ensure call_tool uses the first complete SSE JSON event, not a merged payload."""
+        mock_response = MagicMock()
+        sse_payload = (
+            "event: message\n"
+            'data: {"jsonrpc": "2.0", "id": 1, "result": {"text": "First"}}\n'
+            "\n"
+            "event: message\n"
+            'data: {"jsonrpc": "2.0", "id": 2, "result": {"text": "Second"}}\n\n'
+        )
+        mock_response.read.return_value = sse_payload.encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        client = MCPClient("https://gemini-api-docs-mcp.dev")
+        res = client.call_tool("gemini_get_doc", {"chunk_id": "chunk_01"})
+        self.assertEqual(res.get("text"), "First")
+
+    @patch("urllib.request.urlopen")
     def test_call_tool_http_error(self, mock_urlopen):
         """Ensure call_tool gracefully formats HTTP error."""
         mock_urlopen.side_effect = urllib.error.HTTPError(

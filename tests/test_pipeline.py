@@ -1,11 +1,13 @@
 """Unit tests for RADULOV scanner, synthesizer, and autonomous builder."""
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from radulov.builder import _extract_builder_json, _write_files_to_disk
+from radulov.researcher import conduct_deep_research
 from radulov.scanner import format_scan_summary, scan_repository
 from radulov.synthesizer import _extract_json, format_options_card
 
@@ -74,6 +76,44 @@ class TestRadulovPipeline(unittest.TestCase):
             self.assertEqual(len(written), 2)
             self.assertTrue((tmp_root / "src" / "module.py").is_file())
             self.assertEqual((tmp_root / "src" / "module.py").read_text(), "x = 10\n")
+
+    def test_write_files_to_disk_blocks_traversal_and_secrets(self):
+        """Ensure builder refuses path traversal and sensitive credential files."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            files_to_write = [
+                {"path": "../escape.py", "content": "should_not_write = True\n"},
+                {"path": ".env", "content": "GEMINI_API_KEY=leaked\n"},
+                {"path": ".git/config", "content": "[core]\n"},
+                {"path": "secrets/api.pem", "content": "PRIVATE KEY\n"},
+            ]
+            with patch("sys.stderr"):
+                written = _write_files_to_disk(files_to_write, tmp_root)
+            self.assertEqual(written, [])
+            self.assertFalse((tmp_root / ".env").exists())
+            self.assertFalse((tmp_root / ".git" / "config").exists())
+            self.assertFalse((tmp_root / "secrets" / "api.pem").exists())
+            self.assertFalse((tmp_root.parent / "escape.py").exists())
+
+    def test_research_timeout_returns_without_waiting_on_worker(self):
+        """Ensure the 120s research cap returns even if the worker is still running."""
+
+        def _hang(_client, _prompt, _model):
+            time.sleep(0.6)
+            return "late research"
+
+        with patch("radulov.researcher._invoke_research", side_effect=_hang):
+            started = time.monotonic()
+            result = conduct_deep_research(
+                client=MagicMock(),
+                user_goal="Add auth",
+                codebase_summary="Python CLI",
+                timeout_sec=0.2,
+            )
+            elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 1.5)
+        self.assertIn("timed out", result.lower())
 
 
 if __name__ == "__main__":

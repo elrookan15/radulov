@@ -38,6 +38,7 @@ except ImportError:
     genai = None  # type: ignore[assignment]
     APIError = Exception  # type: ignore[assignment, misc]
 
+from radulov import DEFAULT_MODEL as PACKAGE_DEFAULT_MODEL
 from radulov.builder import execute_autonomous_build
 from radulov.researcher import conduct_deep_research
 from radulov.scanner import format_scan_summary, scan_repository
@@ -61,7 +62,7 @@ TOOL_MAP: dict[str, Callable[..., Any]] = {
 PROMPT_FILE = Path(__file__).parent / "prompts" / "aegis_system_prompt.md"
 SESSIONS_DIR = Path(__file__).parent / ".radulov" / "sessions"
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-3.8-flash")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", PACKAGE_DEFAULT_MODEL)
 DEFAULT_THINKING_LEVEL = os.environ.get("GEMINI_THINKING_LEVEL", "medium")
 DEFAULT_MAX_TOKENS = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "65536"))
 MAX_FILE_SIZE_BYTES = 512 * 1024  # 512 KB per file

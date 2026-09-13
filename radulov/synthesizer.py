@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from typing import Any
 
 try:
@@ -17,6 +16,8 @@ try:
 except ImportError:
     genai = None  # type: ignore[assignment]
     types = None  # type: ignore[assignment]
+
+from radulov import DEFAULT_MODEL
 
 
 SYNTHESIS_PROMPT = """You are the Lead Systems Architect for RADULOV.
@@ -81,7 +82,7 @@ def synthesize_dual_options(
     user_goal: str,
     codebase_summary: str,
     research_report: str,
-    model: str = "models/gemini-3.7-flash",
+    model: str = DEFAULT_MODEL,
 ) -> dict[str, Any]:
     """Synthesize two optimized architectural options using Gemini."""
     prompt = SYNTHESIS_PROMPT.format(

@@ -30,6 +30,45 @@ class MCPClient:
         self._request_id += 1
         return self._request_id
 
+    @staticmethod
+    def _iter_sse_data_payloads(response_text: str):
+        """Yield concatenated `data:` fields for each SSE event."""
+        current: list[str] = []
+        for raw_line in response_text.splitlines():
+            line = raw_line.rstrip("\r")
+            if line == "":
+                if current:
+                    yield "\n".join(current)
+                    current = []
+                continue
+            if line.startswith("data:"):
+                current.append(line[5:].lstrip())
+        if current:
+            yield "\n".join(current)
+
+    @staticmethod
+    def _parse_response_json(response_text: str) -> dict[str, Any]:
+        """Parse a direct JSON body or the first valid JSON payload in an SSE stream."""
+        stripped = response_text.strip()
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+        for payload in MCPClient._iter_sse_data_payloads(stripped):
+            if payload == "[DONE]":
+                continue
+            try:
+                parsed = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+
+        raise json.JSONDecodeError("Unable to parse response JSON", response_text, 0)
+
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         """Call a remote MCP tool using standard JSON-RPC 2.0 payload."""
         payload = {
@@ -57,13 +96,7 @@ class MCPClient:
             with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:
                 resp_bytes = response.read()
                 resp_str = resp_bytes.decode("utf-8", errors="replace")
-                
-                # Handle possible SSE (text/event-stream) format or direct JSON
-                if resp_str.startswith("data:"):
-                    lines = [line[5:].strip() for line in resp_str.splitlines() if line.startswith("data:")]
-                    resp_str = lines[-1] if lines else "{}"
-
-                result_json = json.loads(resp_str)
+                result_json = self._parse_response_json(resp_str)
                 if "error" in result_json:
                     return {"error": result_json["error"]}
                 return result_json.get("result", {})

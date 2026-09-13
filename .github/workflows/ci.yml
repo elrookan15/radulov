@@ -30,7 +30,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          python -m py_compile main.py tests/test_main.py
+          python -m compileall -q -f main.py radulov tests
 
       - name: Run unit tests
         run: |

@@ -1,6 +1,6 @@
 """Bounded Deep Research Engine for RADULOV.
 
-Executes Google Search Grounded research over Gemini 3.7 Flash with a strict
+Executes Google Search Grounded research over Gemini with a strict
 120-second timeout to discover current production libraries, benchmarks,
 and architectural patterns.
 """
@@ -18,6 +18,8 @@ except ImportError:
     genai = None  # type: ignore[assignment]
     types = None  # type: ignore[assignment]
 
+
+from radulov import DEFAULT_MODEL
 
 RESEARCH_PROMPT_TEMPLATE = """You are the Lead Cyber-Architect conducting deep research for RADULOV.
 Your goal is to investigate modern 2026 production-grade best practices, libraries, and architectural patterns for the following user request within the context of this specific repository.
@@ -43,7 +45,7 @@ Be dense, hyper-technical, objective, and empirical. Ground findings in current 
 def _invoke_research(
     client: genai.Client,
     prompt: str,
-    model: str = "models/gemini-3.7-flash",
+    model: str = DEFAULT_MODEL,
 ) -> str:
     """Invoke Gemini with Search Grounding or thinking fallback."""
     # Attempt 1: Search Grounded Generation
@@ -83,7 +85,7 @@ def conduct_deep_research(
     user_goal: str,
     codebase_summary: str,
     timeout_sec: float = 120.0,
-    model: str = "models/gemini-3.7-flash",
+    model: str = DEFAULT_MODEL,
 ) -> str:
     """Conduct deep research with a strict time cap (default 120s)."""
     prompt = RESEARCH_PROMPT_TEMPLATE.format(
@@ -91,12 +93,22 @@ def conduct_deep_research(
         codebase_summary=codebase_summary,
     )
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_invoke_research, client, prompt, model)
-        try:
-            return future.result(timeout=timeout_sec)
-        except concurrent.futures.TimeoutError:
-            sys.stderr.write(f"WARNING: Deep research timed out after {timeout_sec}s. Proceeding with local synthesis.\n")
-            return "Research timed out after 120s; relying on local repository topology and baseline Aegis invariants."
-        except Exception as err:
-            return f"Research error: {err}"
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="radulov-research"
+    )
+    future = executor.submit(_invoke_research, client, prompt, model)
+    try:
+        return future.result(timeout=timeout_sec)
+    except concurrent.futures.TimeoutError:
+        sys.stderr.write(
+            f"WARNING: Deep research timed out after {timeout_sec}s. "
+            "Proceeding with local synthesis.\n"
+        )
+        return (
+            f"Research timed out after {timeout_sec:.0f}s; relying on local "
+            "repository topology and baseline Aegis invariants."
+        )
+    except Exception as err:
+        return f"Research error: {err}"
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
