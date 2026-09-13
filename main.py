@@ -44,10 +44,12 @@ from radulov.scanner import format_scan_summary, scan_repository
 from radulov.synthesizer import format_options_card, synthesize_dual_options
 from radulov.tools import (
     TOOL_DEFINITIONS,
+    get_gemini_doc,
     list_directory,
     read_file,
     run_tests,
     search_code,
+    search_gemini_docs,
 )
 
 TOOL_MAP: dict[str, Callable[..., Any]] = {
@@ -183,6 +185,13 @@ def parse_args() -> argparse.Namespace:
         const=".",
         metavar="PATH",
         help="Directly display the repository directory tree and exit.",
+    )
+    parser.add_argument(
+        "--docs",
+        "--gemini-docs",
+        dest="cli_gemini_docs",
+        metavar="QUERY",
+        help="Search official Google Gemini API and SDK documentation (MCP) and exit.",
     )
     return parser.parse_args()
 
@@ -371,6 +380,8 @@ def run_chat_loop(
     print(f"RADULOV Interactive Console — Aegis Architecture ({model})")
     print("Commands:")
     print("  /build <goal>  — Run Deep Research & Construction Pipeline")
+    print("  /docs <query>  — Search official Gemini API & SDK docs (MCP)")
+    print("  /doc <chunk_id>— Retrieve Gemini doc chunk (MCP)")
     print("  /file <path>   — Attach file to context")
     print("  /read <path>   — Inspect file locally")
     print("  /grep <term>   — Search repository code")
@@ -417,6 +428,16 @@ def run_chat_loop(
             continue
 
         # Local command shortcuts
+        if user_input.startswith(("/docs ", "/gemini-docs ")):
+            doc_query = user_input.split(" ", 1)[1].strip()
+            print(search_gemini_docs(doc_query))
+            continue
+
+        if user_input.startswith(("/doc ", "/gemini-doc ")):
+            chunk_arg = user_input.split(" ", 1)[1].strip()
+            print(get_gemini_doc(chunk_arg))
+            continue
+
         if user_input.startswith("/read "):
             print(read_file(user_input[6:].strip()))
             continue
@@ -496,6 +517,10 @@ def main() -> int:
 
     if args.cli_tree is not None:
         print(list_directory(args.cli_tree))
+        return 0
+
+    if args.cli_gemini_docs:
+        print(search_gemini_docs(args.cli_gemini_docs))
         return 0
 
     api_key = os.environ.get("GEMINI_API_KEY")

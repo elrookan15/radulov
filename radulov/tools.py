@@ -202,9 +202,14 @@ def run_tests(test_dir: str = "tests", timeout_sec: int = 30) -> str:
         return f"Error running tests in '{test_dir}': {err}"
 
 
+from radulov.mcp import get_gemini_doc, search_gemini_docs
+
 TOOL_DEFINITIONS = [
     read_file,
     list_directory,
     search_code,
     run_tests,
+    search_gemini_docs,
+    get_gemini_doc,
 ]
+

@@ -37,7 +37,8 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ├── main.py                     # Entrypoint CLI runner with streaming, REPL, and build pipeline
 ├── radulov/
 │   ├── __init__.py             # Package declaration
-│   ├── tools.py                # Grounded engineering tools (read, search, tree, test runner)
+│   ├── mcp.py                  # Model Context Protocol (MCP) client & Gemini API docs integration
+│   ├── tools.py                # Grounded engineering tools (read, search, tree, test runner, Gemini docs)
 │   ├── scanner.py              # Repository topology & manifest scanner
 │   ├── researcher.py           # Bounded Google Search Grounded research engine (120s SLA)
 │   ├── synthesizer.py          # Dual-option architectural plan synthesizer
@@ -47,8 +48,9 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ├── prompts/
 │   └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
 └── tests/
-    ├── test_main.py            # CLI and runner unit tests (8 tests)
-    ├── test_tools.py           # Grounded tools unit tests (7 tests)
+    ├── test_main.py            # CLI and runner unit tests (9 tests)
+    ├── test_tools.py           # Grounded tools unit tests (8 tests)
+    ├── test_mcp.py              # MCP client & Gemini docs unit tests (8 tests)
     └── test_pipeline.py        # Scanner, synthesizer, and builder unit tests (4 tests)
 ```
 
@@ -109,6 +111,8 @@ python main.py --chat
 REPL commands available during a session:
 
 - `/build <goal>` — trigger autonomous deep research and construction from within the chat.
+- `/docs <query>` — search official Gemini API & SDK documentation (MCP).
+- `/doc <chunk_id>` — retrieve specific Gemini documentation chunk (MCP).
 - `/read <path>` — inspect a file locally with line numbers.
 - `/grep <term>` — search repository code for functions or keywords.
 - `/ls [path]` — display repository directory hierarchy.
@@ -128,9 +132,12 @@ python main.py -f main.py -f requirements.txt -i "Verify that this code conforms
 
 ### 4. Local Developer Utilities (No API Key Required)
 
-Execute local repository inspections directly via CLI flags:
+Execute local repository inspections and docs search directly via CLI flags:
 
 ```bash
+# Search official Gemini API & SDK documentation (MCP)
+python main.py --docs "interactions api streaming"
+
 # View clean repository file tree
 python main.py --tree
 

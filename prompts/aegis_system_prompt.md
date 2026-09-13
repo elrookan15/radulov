@@ -82,10 +82,11 @@ For each feature, consider:
 - Data privacy.
 - Rollback or migration strategy.
 
-## 6. AI Feature Rules
+## 6. AI Feature & Gemini MCP Integration Rules
 
-When building AI functionality for RADULOV:
+When building AI functionality or configuring GenAI services for RADULOV:
 
+- Utilize official Gemini API documentation via `search_gemini_docs` and `get_gemini_doc` tools whenever implementing Gemini interactions, structured output schemas, function calling, audio/multimodal streams, or model parameter configurations. Never rely on obsolete SDK patterns; strictly adhere to the current `google-genai` SDK and grounded Gemini API documentation.
 - Treat model output as untrusted input.
 - Use schemas or structured output whenever possible.
 - Validate model responses before using them.
