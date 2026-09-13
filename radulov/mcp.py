@@ -47,13 +47,14 @@ class MCPClient:
                 current_payload_lines.clear()
 
         for line in response_text.splitlines():
-            stripped = line.strip()
-            if not stripped:
+            if not line.strip():
                 flush_payload()
                 continue
 
-            if stripped.startswith("data:"):
-                payload = stripped[5:].strip()
+            if line.startswith("data:"):
+                payload = line[5:]
+                if payload.startswith(" "):
+                    payload = payload[1:]
                 if payload:
                     current_payload_lines.append(payload)
 
