@@ -24,7 +24,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 
 ## Repository Structure
 
-```
+```text
 ├── .github/
 │   └── workflows/
 │       └── ci.yml              # GitHub Actions CI matrix (Python 3.10, 3.11, 3.12)
@@ -60,6 +60,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ## Installation
 
 1. Create and activate a Python virtual environment:
+
    ```bash
    # Windows (PowerShell)
    python -m venv .venv
@@ -71,6 +72,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
    ```
 
 2. Install dependencies:
+
    ```bash
    pip install -r requirements.txt
    # Or install in editable mode:
@@ -78,6 +80,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
    ```
 
 3. Configure your API key:
+
    ```bash
    # Copy example environment configuration
    cp .env.example .env
@@ -88,17 +91,23 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ## Usage
 
 ### 1. Autonomous Deep Research & Construction (`--build / -b`)
+
 Trigger the full 5-stage research, dual-option synthesis, and construction workflow:
+
 ```bash
 python main.py -b "Build a real-time Markdown live-preview component with code syntax highlighting"
 ```
 
 ### 2. Interactive Multi-Turn REPL (`--chat`)
+
 Launch an ongoing design session where Aegis remembers previous turns:
+
 ```bash
 python main.py --chat
 ```
+
 REPL commands available during a session:
+
 - `/build <goal>` — trigger autonomous deep research and construction from within the chat.
 - `/read <path>` — inspect a file locally with line numbers.
 - `/grep <term>` — search repository code for functions or keywords.
@@ -110,13 +119,17 @@ REPL commands available during a session:
 - `/exit` — quit the console.
 
 ### 3. Single-Shot Query with Repository Context (`-f / --file`)
+
 Pass specific files for Aegis to analyze:
+
 ```bash
 python main.py -f main.py -f requirements.txt -i "Verify that this code conforms to Aegis Section 6 AI Feature Rules."
 ```
 
 ### 4. Local Developer Utilities (No API Key Required)
+
 Execute local repository inspections directly via CLI flags:
+
 ```bash
 # View clean repository file tree
 python main.py --tree
@@ -129,12 +142,15 @@ python main.py --run-tests
 ```
 
 ### 5. Custom Model & Thinking Controls
+
 Customize model, thinking budget, and token limits:
+
 ```bash
 python main.py --model "models/gemini-3.7-flash" --thinking-level high --max-tokens 32768
 ```
 
 To disable streaming and output the full response atomically:
+
 ```bash
 python main.py --no-stream -i "Summarize database requirements."
 ```
@@ -142,6 +158,7 @@ python main.py --no-stream -i "Summarize database requirements."
 ## Testing
 
 Run the automated test suite (19 unit tests):
+
 ```bash
 python -m unittest discover -s tests -v
 # Or using the built-in CLI shortcut:
