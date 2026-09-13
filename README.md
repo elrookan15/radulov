@@ -13,7 +13,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
   4. **Human Selection Gate**: Interactive prompt awaiting your architectural approval.
   5. **Aegis Construction & Self-Correction**: Synthesizes 100% complete files, writes unit tests, and verifies execution via the Red-Green-Verify loop.
 - **Aegis Architecture Governance**: Grounded by [prompts/aegis_system_prompt.md](prompts/aegis_system_prompt.md) and [AGENTS.md](AGENTS.md).
-- **Grounded Engineering Tools (`--tools`)**: Equips Aegis with local read-only tools (`read_file`, `list_directory`, `search_code`, `run_tests`) to prevent hallucinating file contents or test results.
+- **Grounded Engineering Tools (`--tools`)**: Declares local tools (`read_file`, `list_directory`, `search_code`, `run_tests`) to Gemini, executes `function_call` steps locally, and sends `function_result` back so Aegis cannot hallucinate file contents or test results.
 - **Stateful Multi-Turn REPL (`--chat`)**: Interactive console remembering context turns via Gemini Interactions server-side state.
 - **Repository File Context Injection (`-f / --file`)**: Attach local source files directly into model reasoning context.
 - **CLI Development Shortcuts**: Direct developer tools for `--tree`, `--grep <query>`, and `--run-tests` without model invocation overhead.
@@ -49,10 +49,10 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ├── prompts/
 │   └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
 └── tests/
-    ├── test_main.py            # CLI and runner unit tests (10 tests)
-    ├── test_tools.py           # Grounded tools unit tests (8 tests)
+    ├── test_main.py            # CLI and runner unit tests (11 tests)
+    ├── test_tools.py           # Grounded tools unit tests (13 tests)
     ├── test_mcp.py             # MCP client & Gemini docs unit tests (13 tests)
-    ├── test_skills.py          # Skills engine unit tests (6 tests)
+    ├── test_skills.py          # Skills engine unit tests (7 tests)
     └── test_pipeline.py        # Scanner, synthesizer, builder, and research unit tests (6 tests)
 ```
 
@@ -174,7 +174,7 @@ python main.py --no-stream -i "Summarize database requirements."
 
 ## Testing
 
-Run the automated test suite (43 unit tests):
+Run the automated test suite (50 unit tests):
 
 ```bash
 python -m unittest discover -s tests -v

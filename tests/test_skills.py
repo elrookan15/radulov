@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from radulov.skills import (
     _parse_yaml_frontmatter,
+    compose_system_instruction,
     discover_skills,
     list_skills,
     load_skills_context,
@@ -63,6 +64,13 @@ class TestRadulovSkills(unittest.TestCase):
         context = load_skills_context(["gemini-api-dev"])
         self.assertIn("--- BEGIN SKILL: gemini-api-dev ---", context)
         self.assertIn("--- END SKILL: gemini-api-dev ---", context)
+
+    def test_compose_system_instruction_injects_skills(self):
+        """Ensure compose_system_instruction appends loaded skill bodies."""
+        composed = compose_system_instruction("You are Aegis.")
+        self.assertTrue(composed.startswith("You are Aegis."))
+        self.assertIn("--- BEGIN SKILL: gemini-api-dev ---", composed)
+        self.assertIn("gemini-3.8-flash", composed)
 
 
 if __name__ == "__main__":

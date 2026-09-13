@@ -1,8 +1,14 @@
 """Unit tests for RADULOV grounded engineering tools."""
 
 import unittest
+from unittest.mock import MagicMock
+
 from radulov.tools import (
+    FUNCTION_DECLARATIONS,
     _resolve_safe_path,
+    collect_function_calls,
+    dispatch_tool,
+    function_to_declaration,
     list_directory,
     read_file,
     run_tests,
@@ -75,6 +81,57 @@ class TestRadulovTools(unittest.TestCase):
         self.assertIn(get_gemini_doc, TOOL_DEFINITIONS)
         self.assertIn(list_skills, TOOL_DEFINITIONS)
         self.assertIn(read_skill, TOOL_DEFINITIONS)
+
+
+    def test_function_to_declaration_uses_signature_and_docstring(self):
+        """Convert a Python tool into an Interactions function declaration."""
+        declaration = function_to_declaration(read_file)
+        self.assertEqual(declaration["type"], "function")
+        self.assertEqual(declaration["name"], "read_file")
+        self.assertIn("Read the content of a file", declaration["description"])
+        self.assertEqual(declaration["parameters"]["type"], "object")
+        self.assertIn("file_path", declaration["parameters"]["required"])
+        self.assertNotIn("max_lines", declaration["parameters"]["required"])
+        self.assertEqual(
+            declaration["parameters"]["properties"]["max_lines"]["type"], "integer"
+        )
+
+    def test_function_declarations_cover_all_tools(self):
+        """FUNCTION_DECLARATIONS must list every TOOL_DEFINITIONS callable."""
+        from radulov.tools import TOOL_DEFINITIONS
+
+        declared = {item["name"] for item in FUNCTION_DECLARATIONS}
+        implemented = {func.__name__ for func in TOOL_DEFINITIONS}
+        self.assertEqual(declared, implemented)
+
+    def test_collect_function_calls_from_list_steps(self):
+        """collect_function_calls reads function_call steps and ignores other types."""
+        text_step = MagicMock()
+        text_step.type = "model_output"
+        call_step = MagicMock()
+        call_step.type = "function_call"
+        call_step.name = "search_code"
+        call_step.id = "fc-9"
+        call_step.arguments = {"query": "DEFAULT_MODEL"}
+
+        interaction = MagicMock()
+        interaction.steps = [text_step, call_step]
+        calls = collect_function_calls(interaction)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["name"], "search_code")
+        self.assertEqual(calls[0]["call_id"], "fc-9")
+        self.assertEqual(calls[0]["arguments"]["query"], "DEFAULT_MODEL")
+
+    def test_collect_function_calls_ignores_non_list_steps(self):
+        """MagicMock interactions without real steps must not look like tool calls."""
+        self.assertEqual(collect_function_calls(MagicMock()), [])
+
+    def test_dispatch_tool_executes_and_reports_unknown(self):
+        """dispatch_tool runs mapped functions and returns errors for unknown names."""
+        output = dispatch_tool("read_file", {"file_path": "README.md", "max_lines": 1})
+        self.assertIn("RADULOV", output)
+        missing = dispatch_tool("not_a_real_tool", {})
+        self.assertIn("Unknown tool", missing)
 
 
 if __name__ == "__main__":

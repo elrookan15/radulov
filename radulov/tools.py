@@ -6,10 +6,13 @@ to ensure Aegis never hallucinates execution evidence or file contents.
 
 from __future__ import annotations
 
+import inspect
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MAX_FILE_BYTES = 512 * 1024  # 512 KB
@@ -215,5 +218,121 @@ TOOL_DEFINITIONS = [
     list_skills,
     read_skill,
 ]
+
+TOOL_MAP: dict[str, Callable[..., Any]] = {
+    func.__name__: func for func in TOOL_DEFINITIONS
+}
+
+
+def _json_schema_for_annotation(annotation: Any) -> dict[str, str]:
+    """Map a Python annotation to a JSON Schema type for Interactions tools."""
+    if annotation is inspect.Parameter.empty:
+        return {"type": "string"}
+
+    arg_types = getattr(annotation, "__args__", None)
+    names = [
+        getattr(item, "__name__", str(item))
+        for item in (arg_types or (annotation,))
+        if item is not type(None)
+    ]
+    if names == ["int"]:
+        return {"type": "integer"}
+    if names == ["float"]:
+        return {"type": "number"}
+    if names == ["bool"]:
+        return {"type": "boolean"}
+    return {"type": "string"}
+
+
+def function_to_declaration(func: Callable[..., Any]) -> dict[str, Any]:
+    """Convert a Python callable into an Interactions API function declaration."""
+    signature = inspect.signature(func)
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    for name, param in signature.parameters.items():
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            continue
+        properties[name] = _json_schema_for_annotation(param.annotation)
+        if param.default is inspect.Parameter.empty:
+            required.append(name)
+
+    description = inspect.getdoc(func) or func.__name__
+    description = description.strip().split("\n", 1)[0]
+
+    return {
+        "type": "function",
+        "name": func.__name__,
+        "description": description,
+        "parameters": {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        },
+    }
+
+
+FUNCTION_DECLARATIONS: list[dict[str, Any]] = [
+    function_to_declaration(func) for func in TOOL_DEFINITIONS
+]
+
+
+def _coerce_arguments(raw: Any) -> dict[str, Any]:
+    """Normalize model-provided tool arguments to a dict."""
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def collect_function_calls(interaction: Any) -> list[dict[str, Any]]:
+    """Extract function_call steps from an Interaction. Non-list steps are ignored."""
+    steps = getattr(interaction, "steps", None)
+    if not isinstance(steps, (list, tuple)):
+        return []
+
+    calls: list[dict[str, Any]] = []
+    for step in steps:
+        if getattr(step, "type", None) != "function_call":
+            continue
+        calls.append(
+            {
+                "name": getattr(step, "name", "") or "",
+                "call_id": getattr(step, "id", "") or "",
+                "arguments": _coerce_arguments(getattr(step, "arguments", None)),
+            }
+        )
+    return calls
+
+
+def dispatch_tool(name: str, arguments: dict[str, Any] | None = None) -> str:
+    """Execute a registered grounded tool and return its string result."""
+    func = TOOL_MAP.get(name)
+    if func is None:
+        return f"Error: Unknown tool '{name}'."
+    args = arguments if isinstance(arguments, dict) else {}
+    try:
+        result = func(**args)
+    except TypeError as err:
+        return f"Error calling '{name}': {err}"
+    except Exception as err:
+        return f"Error executing '{name}': {err}"
+    return str(result)
+
+
+def format_function_result(call: dict[str, Any], result_text: str) -> dict[str, Any]:
+    """Build an Interactions function_result payload for a completed tool call."""
+    return {
+        "type": "function_result",
+        "name": call.get("name", ""),
+        "call_id": call.get("call_id", ""),
+        "result": [{"type": "text", "text": result_text}],
+    }
 
 

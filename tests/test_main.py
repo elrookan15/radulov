@@ -181,6 +181,55 @@ class TestRadulovCore(unittest.TestCase):
             self.assertEqual(int_id, "int-sync-99")
             mock_print.assert_called_with("Synchronous response text")
 
+    def test_execute_interaction_sync_runs_tools_then_continues(self):
+        """Execute function_call steps locally and send function_result back."""
+        mock_client = MagicMock()
+
+        function_call = MagicMock()
+        function_call.type = "function_call"
+        function_call.name = "read_file"
+        function_call.id = "call_readme"
+        function_call.arguments = {"file_path": "README.md", "max_lines": 2}
+
+        first = MagicMock()
+        first.output_text = ""
+        first.id = "int-tool-1"
+        first.steps = [function_call]
+
+        second = MagicMock()
+        second.output_text = "README starts with RADULOV"
+        second.id = "int-tool-2"
+        second.steps = []
+
+        mock_client.interactions.create.side_effect = [first, second]
+
+        with patch("builtins.print"), patch("sys.stderr"):
+            text, int_id = execute_interaction(
+                client=mock_client,
+                model="models/gemini-3.8-flash",
+                user_input="What is the README title?",
+                system_instruction="Prompt",
+                generation_config={"max_output_tokens": 1024},
+                stream=False,
+            )
+
+        self.assertEqual(text, "README starts with RADULOV")
+        self.assertEqual(int_id, "int-tool-2")
+        self.assertEqual(mock_client.interactions.create.call_count, 2)
+
+        first_kwargs = mock_client.interactions.create.call_args_list[0].kwargs
+        self.assertTrue(first_kwargs["tools"])
+        self.assertIsInstance(first_kwargs["tools"][0], dict)
+        self.assertEqual(first_kwargs["tools"][0]["type"], "function")
+
+        follow_up = mock_client.interactions.create.call_args_list[1].kwargs
+        self.assertEqual(follow_up["previous_interaction_id"], "int-tool-1")
+        payload = follow_up["input"]
+        self.assertEqual(payload[0]["type"], "function_result")
+        self.assertEqual(payload[0]["name"], "read_file")
+        self.assertEqual(payload[0]["call_id"], "call_readme")
+        self.assertIn("RADULOV", payload[0]["result"][0]["text"])
+
     def test_save_session_turn(self):
         """Ensure session turn logs are correctly appended to JSONL file."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
