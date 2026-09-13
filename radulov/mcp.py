@@ -47,7 +47,7 @@ class MCPClient:
                 current_payload_lines.clear()
 
         for line in response_text.splitlines():
-            if not line.strip():
+            if line == "":
                 flush_payload()
                 continue
 
