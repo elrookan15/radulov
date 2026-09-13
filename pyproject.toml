@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "radulov"
 version = "0.3.0"
 description = "Autonomous engineering intelligence and Gemini client configured with the Aegis system architecture."
-
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -17,6 +16,13 @@ dependencies = [
 
 [project.scripts]
 radulov = "main:main"
+
+[tool.setuptools]
+packages = ["radulov"]
+py-modules = ["main"]
+
+[tool.setuptools.package-data]
+"*" = ["prompts/*.md"]
 
 [tool.ruff]
 line-length = 88

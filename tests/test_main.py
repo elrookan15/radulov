@@ -92,13 +92,15 @@ class TestRadulovCore(unittest.TestCase):
             f1_path = Path(f1.name)
 
         try:
-            context = format_file_context([f1_path, "non_existent_file.xyz"])
+            with patch("sys.stderr"):
+                context = format_file_context([f1_path, "non_existent_file.xyz"])
             self.assertIn(f"--- BEGIN FILE: {f1_path.as_posix()} ---", context)
             self.assertIn("print('hello')", context)
             self.assertIn(f"--- END FILE: {f1_path.as_posix()} ---", context)
         finally:
             if f1_path.exists():
                 f1_path.unlink()
+
 
     def test_execute_interaction_streaming(self):
         """Ensure streaming events are correctly unpacked and printed."""
