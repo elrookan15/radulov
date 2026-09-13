@@ -63,10 +63,18 @@ class TestRadulovTools(unittest.TestCase):
         mock_run.assert_called_once()
 
     def test_tool_definitions_includes_gemini_docs(self):
-        """Ensure TOOL_DEFINITIONS contains search_gemini_docs and get_gemini_doc."""
-        from radulov.tools import TOOL_DEFINITIONS, get_gemini_doc, search_gemini_docs
+        """Ensure TOOL_DEFINITIONS contains search_gemini_docs, get_gemini_doc, list_skills, and read_skill."""
+        from radulov.tools import (
+            TOOL_DEFINITIONS,
+            get_gemini_doc,
+            list_skills,
+            read_skill,
+            search_gemini_docs,
+        )
         self.assertIn(search_gemini_docs, TOOL_DEFINITIONS)
         self.assertIn(get_gemini_doc, TOOL_DEFINITIONS)
+        self.assertIn(list_skills, TOOL_DEFINITIONS)
+        self.assertIn(read_skill, TOOL_DEFINITIONS)
 
 
 if __name__ == "__main__":

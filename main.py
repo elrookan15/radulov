@@ -46,7 +46,9 @@ from radulov.tools import (
     TOOL_DEFINITIONS,
     get_gemini_doc,
     list_directory,
+    list_skills,
     read_file,
+    read_skill,
     run_tests,
     search_code,
     search_gemini_docs,
@@ -59,7 +61,7 @@ TOOL_MAP: dict[str, Callable[..., Any]] = {
 PROMPT_FILE = Path(__file__).parent / "prompts" / "aegis_system_prompt.md"
 SESSIONS_DIR = Path(__file__).parent / ".radulov" / "sessions"
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-3.7-flash")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-3.8-flash")
 DEFAULT_THINKING_LEVEL = os.environ.get("GEMINI_THINKING_LEVEL", "medium")
 DEFAULT_MAX_TOKENS = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "65536"))
 MAX_FILE_SIZE_BYTES = 512 * 1024  # 512 KB per file
@@ -192,6 +194,19 @@ def parse_args() -> argparse.Namespace:
         dest="cli_gemini_docs",
         metavar="QUERY",
         help="Search official Google Gemini API and SDK documentation (MCP) and exit.",
+    )
+    parser.add_argument(
+        "--skills",
+        "--list-skills",
+        dest="cli_list_skills",
+        action="store_true",
+        help="List all discovered agent skills and exit.",
+    )
+    parser.add_argument(
+        "--skill",
+        dest="cli_read_skill",
+        metavar="NAME",
+        help="Display instructions for a specific agent skill (e.g. 'gemini-api-dev') and exit.",
     )
     return parser.parse_args()
 
@@ -380,6 +395,8 @@ def run_chat_loop(
     print(f"RADULOV Interactive Console — Aegis Architecture ({model})")
     print("Commands:")
     print("  /build <goal>  — Run Deep Research & Construction Pipeline")
+    print("  /skills        — List all discovered agent skills")
+    print("  /skill <name>  — View instructions for a specific skill")
     print("  /docs <query>  — Search official Gemini API & SDK docs (MCP)")
     print("  /doc <chunk_id>— Retrieve Gemini doc chunk (MCP)")
     print("  /file <path>   — Attach file to context")
@@ -428,6 +445,15 @@ def run_chat_loop(
             continue
 
         # Local command shortcuts
+        if user_input in ("/skills", "/list-skills"):
+            print(list_skills())
+            continue
+
+        if user_input.startswith("/skill "):
+            skill_arg = user_input[7:].strip()
+            print(read_skill(skill_arg))
+            continue
+
         if user_input.startswith(("/docs ", "/gemini-docs ")):
             doc_query = user_input.split(" ", 1)[1].strip()
             print(search_gemini_docs(doc_query))
@@ -521,6 +547,14 @@ def main() -> int:
 
     if args.cli_gemini_docs:
         print(search_gemini_docs(args.cli_gemini_docs))
+        return 0
+
+    if args.cli_list_skills:
+        print(list_skills())
+        return 0
+
+    if args.cli_read_skill:
+        print(read_skill(args.cli_read_skill))
         return 0
 
     api_key = os.environ.get("GEMINI_API_KEY")

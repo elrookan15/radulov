@@ -37,8 +37,9 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ├── main.py                     # Entrypoint CLI runner with streaming, REPL, and build pipeline
 ├── radulov/
 │   ├── __init__.py             # Package declaration
+│   ├── skills.py               # Skills discovery, parsing & prompt context engine
 │   ├── mcp.py                  # Model Context Protocol (MCP) client & Gemini API docs integration
-│   ├── tools.py                # Grounded engineering tools (read, search, tree, test runner, Gemini docs)
+│   ├── tools.py                # Grounded engineering tools (read, search, tree, test runner, Gemini docs, skills)
 │   ├── scanner.py              # Repository topology & manifest scanner
 │   ├── researcher.py           # Bounded Google Search Grounded research engine (120s SLA)
 │   ├── synthesizer.py          # Dual-option architectural plan synthesizer
@@ -48,9 +49,10 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ├── prompts/
 │   └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
 └── tests/
-    ├── test_main.py            # CLI and runner unit tests (9 tests)
+    ├── test_main.py            # CLI and runner unit tests (10 tests)
     ├── test_tools.py           # Grounded tools unit tests (8 tests)
-    ├── test_mcp.py              # MCP client & Gemini docs unit tests (8 tests)
+    ├── test_mcp.py             # MCP client & Gemini docs unit tests (8 tests)
+    ├── test_skills.py          # Skills engine unit tests (6 tests)
     └── test_pipeline.py        # Scanner, synthesizer, and builder unit tests (4 tests)
 ```
 
@@ -111,6 +113,8 @@ python main.py --chat
 REPL commands available during a session:
 
 - `/build <goal>` — trigger autonomous deep research and construction from within the chat.
+- `/skills` — list all discovered agent skills (local and global).
+- `/skill <name>` — inspect full instructions for a specific agent skill (e.g. `/skill gemini-api-dev`).
 - `/docs <query>` — search official Gemini API & SDK documentation (MCP).
 - `/doc <chunk_id>` — retrieve specific Gemini documentation chunk (MCP).
 - `/read <path>` — inspect a file locally with line numbers.
@@ -132,9 +136,15 @@ python main.py -f main.py -f requirements.txt -i "Verify that this code conforms
 
 ### 4. Local Developer Utilities (No API Key Required)
 
-Execute local repository inspections and docs search directly via CLI flags:
+Execute local repository inspections, skill reads, and docs search directly via CLI flags:
 
 ```bash
+# List all discovered agent skills
+python main.py --skills
+
+# View specific skill instructions
+python main.py --skill gemini-api-dev
+
 # Search official Gemini API & SDK documentation (MCP)
 python main.py --docs "interactions api streaming"
 
@@ -150,10 +160,10 @@ python main.py --run-tests
 
 ### 5. Custom Model & Thinking Controls
 
-Customize model, thinking budget, and token limits:
+Customize model, thinking budget, and token limits (defaults to `gemini-3.8-flash`):
 
 ```bash
-python main.py --model "models/gemini-3.7-flash" --thinking-level high --max-tokens 32768
+python main.py --model "models/gemini-3.8-flash" --thinking-level high --max-tokens 32768
 ```
 
 To disable streaming and output the full response atomically:

@@ -43,6 +43,8 @@ class TestRadulovCore(unittest.TestCase):
             self.assertFalse(args.chat)
             self.assertIsNone(args.build_goal)
             self.assertIsNone(args.cli_gemini_docs)
+            self.assertFalse(args.cli_list_skills)
+            self.assertIsNone(args.cli_read_skill)
 
     def test_parse_args_custom(self):
         """Ensure custom model, thinking level, files, and chat flags work."""
@@ -85,6 +87,16 @@ class TestRadulovCore(unittest.TestCase):
         with patch("sys.argv", ["main.py", "--docs", "interactions streaming"]):
             args = parse_args()
             self.assertEqual(args.cli_gemini_docs, "interactions streaming")
+
+    def test_parse_args_skills(self):
+        """Ensure --skills and --skill arguments are parsed correctly."""
+        with patch("sys.argv", ["main.py", "--skills"]):
+            args = parse_args()
+            self.assertTrue(args.cli_list_skills)
+
+        with patch("sys.argv", ["main.py", "--skill", "gemini-api-dev"]):
+            args = parse_args()
+            self.assertEqual(args.cli_read_skill, "gemini-api-dev")
 
 
     def test_load_system_instruction_missing_file(self):

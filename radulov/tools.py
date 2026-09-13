@@ -203,6 +203,7 @@ def run_tests(test_dir: str = "tests", timeout_sec: int = 30) -> str:
 
 
 from radulov.mcp import get_gemini_doc, search_gemini_docs
+from radulov.skills import list_skills, read_skill
 
 TOOL_DEFINITIONS = [
     read_file,
@@ -211,5 +212,8 @@ TOOL_DEFINITIONS = [
     run_tests,
     search_gemini_docs,
     get_gemini_doc,
+    list_skills,
+    read_skill,
 ]
+
 
