@@ -88,7 +88,7 @@ class TestRadulovMCP(unittest.TestCase):
 
         client = MCPClient("https://gemini-api-docs-mcp.dev")
         res = client.call_tool("gemini_get_doc", {"chunk_id": "chunk_01"})
-        self.assertEqual(res.get("text"), "Second")
+        self.assertEqual(res.get("text"), "First")
 
     @patch("urllib.request.urlopen")
     def test_call_tool_http_error(self, mock_urlopen):

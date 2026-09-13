@@ -59,7 +59,7 @@ class MCPClient:
 
         flush_payload()
 
-        for payload in reversed(sse_payloads):
+        for payload in sse_payloads:
             if payload == "[DONE]":
                 continue
             try:
