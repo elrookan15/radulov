@@ -52,9 +52,6 @@ class MCPClient:
                 flush_payload()
                 continue
 
-            if current_payload_lines and not stripped.startswith("data:"):
-                flush_payload()
-
             if stripped.startswith("data:"):
                 payload = stripped[5:].strip()
                 if payload:
