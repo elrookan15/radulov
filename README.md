@@ -51,7 +51,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 └── tests/
     ├── test_main.py            # CLI and runner unit tests (10 tests)
     ├── test_tools.py           # Grounded tools unit tests (8 tests)
-    ├── test_mcp.py             # MCP client & Gemini docs unit tests (11 tests)
+    ├── test_mcp.py             # MCP client & Gemini docs unit tests (13 tests)
     ├── test_skills.py          # Skills engine unit tests (6 tests)
     └── test_pipeline.py        # Scanner, synthesizer, builder, and research unit tests (6 tests)
 ```
@@ -174,7 +174,7 @@ python main.py --no-stream -i "Summarize database requirements."
 
 ## Testing
 
-Run the automated test suite (41 unit tests):
+Run the automated test suite (43 unit tests):
 
 ```bash
 python -m unittest discover -s tests -v

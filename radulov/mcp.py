@@ -31,6 +31,19 @@ class MCPClient:
         return self._request_id
 
     @staticmethod
+    def _sse_data_value(line: str) -> str:
+        """Return an SSE `data:` field value.
+
+        WHATWG EventSource: if the value starts with U+0020 SPACE, remove
+        exactly that one space. Do not strip any other leading or trailing
+        whitespace, and keep empty fields so multi-line payloads stay intact.
+        """
+        value = line[5:]
+        if value.startswith(" "):
+            return value[1:]
+        return value
+
+    @staticmethod
     def _iter_sse_data_payloads(response_text: str):
         """Yield concatenated `data:` fields for each SSE event."""
         current: list[str] = []
@@ -42,22 +55,21 @@ class MCPClient:
                     current = []
                 continue
             if line.startswith("data:"):
-                current.append(line[5:].lstrip())
+                current.append(MCPClient._sse_data_value(line))
         if current:
             yield "\n".join(current)
 
     @staticmethod
     def _parse_response_json(response_text: str) -> dict[str, Any]:
         """Parse a direct JSON body or the first valid JSON payload in an SSE stream."""
-        stripped = response_text.strip()
         try:
-            parsed = json.loads(stripped)
+            parsed = json.loads(response_text)
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:
             pass
 
-        for payload in MCPClient._iter_sse_data_payloads(stripped):
+        for payload in MCPClient._iter_sse_data_payloads(response_text):
             if payload == "[DONE]":
                 continue
             try:

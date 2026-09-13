@@ -90,6 +90,22 @@ class TestRadulovMCP(unittest.TestCase):
         res = client.call_tool("gemini_get_doc", {"chunk_id": "chunk_01"})
         self.assertEqual(res.get("text"), "First")
 
+    def test_sse_data_strips_only_one_leading_space(self):
+        """SSE data fields drop one leading space and keep remaining whitespace."""
+        payloads = list(
+            MCPClient._iter_sse_data_payloads(
+                "event: message\ndata:  leading-space-kept\n\n"
+            )
+        )
+        self.assertEqual(payloads, [" leading-space-kept"])
+
+    def test_sse_data_keeps_empty_fields(self):
+        """Empty data: lines are preserved as blank lines inside the payload."""
+        payloads = list(
+            MCPClient._iter_sse_data_payloads("data: a\ndata:\ndata: b\n\n")
+        )
+        self.assertEqual(payloads, ["a\n\nb"])
+
     @patch("urllib.request.urlopen")
     def test_call_tool_http_error(self, mock_urlopen):
         """Ensure call_tool gracefully formats HTTP error."""
