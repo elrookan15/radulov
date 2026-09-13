@@ -38,15 +38,30 @@ class MCPClient:
         except json.JSONDecodeError:
             pass
 
-        sse_payloads = []
+        sse_payloads: list[str] = []
+        current_payload_lines: list[str] = []
+
+        def flush_payload() -> None:
+            if current_payload_lines:
+                sse_payloads.append("\n".join(current_payload_lines))
+                current_payload_lines.clear()
+
         for line in response_text.splitlines():
             stripped = line.strip()
+            if not stripped:
+                flush_payload()
+                continue
+
             if stripped.startswith("data:"):
                 payload = stripped[5:].strip()
                 if payload:
-                    sse_payloads.append(payload)
+                    current_payload_lines.append(payload)
+
+        flush_payload()
 
         for payload in reversed(sse_payloads):
+            if payload == "[DONE]":
+                continue
             try:
                 return json.loads(payload)
             except json.JSONDecodeError:
