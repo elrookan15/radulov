@@ -79,6 +79,7 @@ class TestRadulovMCP(unittest.TestCase):
         sse_payload = (
             "event: message\n"
             'data: {"jsonrpc": "2.0", "id": 1, "result": {"text": "First"}}\n'
+            "\n"
             "event: message\n"
             'data: {"jsonrpc": "2.0", "id": 2, "result": {"text": "Second"}}\n\n'
         )
