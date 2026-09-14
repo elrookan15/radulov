@@ -141,3 +141,13 @@ def load_skills_context(skill_names: list[str] | None = None) -> str:
                 blocks.append(f"--- BEGIN SKILL: {name} ---\n{content}\n--- END SKILL: {name} ---")
 
     return "\n\n".join(blocks)
+
+
+def compose_system_instruction(
+    base: str, skill_names: list[str] | None = None
+) -> str:
+    """Append discovered skill instructions onto a system prompt."""
+    extra = load_skills_context(skill_names)
+    if not extra:
+        return base
+    return f"{base}\n\n## Loaded Agent Skills\n\n{extra}"

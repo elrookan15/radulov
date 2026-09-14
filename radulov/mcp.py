@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 from typing import Any
@@ -29,6 +30,57 @@ class MCPClient:
     def _next_id(self) -> int:
         self._request_id += 1
         return self._request_id
+
+    @staticmethod
+    def _sse_data_value(line: str) -> str:
+        """Return an SSE `data:` field value.
+
+        WHATWG EventSource: if the value starts with U+0020 SPACE, remove
+        exactly that one space. Do not strip any other leading or trailing
+        whitespace, and keep empty fields so multi-line payloads stay intact.
+        """
+        value = line[5:]
+        if value.startswith(" "):
+            return value[1:]
+        return value
+
+    @staticmethod
+    def _iter_sse_data_payloads(response_text: str):
+        """Yield concatenated `data:` fields for each SSE event."""
+        current: list[str] = []
+        for raw_line in response_text.splitlines():
+            line = raw_line.rstrip("\r")
+            if line == "":
+                if current:
+                    yield "\n".join(current)
+                    current = []
+                continue
+            if line.startswith("data:"):
+                current.append(MCPClient._sse_data_value(line))
+        if current:
+            yield "\n".join(current)
+
+    @staticmethod
+    def _parse_response_json(response_text: str) -> dict[str, Any]:
+        """Parse a direct JSON body or the first valid JSON payload in an SSE stream."""
+        try:
+            parsed = json.loads(response_text)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+        for payload in MCPClient._iter_sse_data_payloads(response_text):
+            if payload == "[DONE]":
+                continue
+            try:
+                parsed = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+
+        raise json.JSONDecodeError("Unable to parse response JSON", response_text, 0)
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         """Call a remote MCP tool using standard JSON-RPC 2.0 payload."""
@@ -57,13 +109,7 @@ class MCPClient:
             with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:
                 resp_bytes = response.read()
                 resp_str = resp_bytes.decode("utf-8", errors="replace")
-                
-                # Handle possible SSE (text/event-stream) format or direct JSON
-                if resp_str.startswith("data:"):
-                    lines = [line[5:].strip() for line in resp_str.splitlines() if line.startswith("data:")]
-                    resp_str = lines[-1] if lines else "{}"
-
-                result_json = json.loads(resp_str)
+                result_json = self._parse_response_json(resp_str)
                 if "error" in result_json:
                     return {"error": result_json["error"]}
                 return result_json.get("result", {})
@@ -95,9 +141,15 @@ class MCPClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:
-                result_json = json.loads(response.read().decode("utf-8", errors="replace"))
-                return result_json.get("result", {}).get("tools", [])
-        except Exception:
+                resp_str = response.read().decode("utf-8", errors="replace")
+                result_json = self._parse_response_json(resp_str)
+                if "error" in result_json:
+                    sys.stderr.write(f"WARNING: MCP tools/list error: {result_json['error']}\n")
+                    return []
+                tools = result_json.get("result", {}).get("tools", [])
+                return tools if isinstance(tools, list) else []
+        except Exception as err:
+            sys.stderr.write(f"WARNING: MCP tools/list failed: {err}\n")
             return []
 
 

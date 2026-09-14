@@ -15,7 +15,8 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from types import SimpleNamespace
+from typing import Any
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -38,12 +39,19 @@ except ImportError:
     genai = None  # type: ignore[assignment]
     APIError = Exception  # type: ignore[assignment, misc]
 
+from radulov import DEFAULT_MODEL as PACKAGE_DEFAULT_MODEL
 from radulov.builder import execute_autonomous_build
 from radulov.researcher import conduct_deep_research
 from radulov.scanner import format_scan_summary, scan_repository
+from radulov.skills import compose_system_instruction
 from radulov.synthesizer import format_options_card, synthesize_dual_options
 from radulov.tools import (
-    TOOL_DEFINITIONS,
+    FUNCTION_DECLARATIONS,
+    REPO_ROOT,
+    _resolve_safe_path,
+    collect_function_calls,
+    dispatch_tool,
+    format_function_result,
     get_gemini_doc,
     list_directory,
     list_skills,
@@ -54,17 +62,14 @@ from radulov.tools import (
     search_gemini_docs,
 )
 
-TOOL_MAP: dict[str, Callable[..., Any]] = {
-    func.__name__: func for func in TOOL_DEFINITIONS
-}
-
 PROMPT_FILE = Path(__file__).parent / "prompts" / "aegis_system_prompt.md"
 SESSIONS_DIR = Path(__file__).parent / ".radulov" / "sessions"
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "models/gemini-3.8-flash")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", PACKAGE_DEFAULT_MODEL)
 DEFAULT_THINKING_LEVEL = os.environ.get("GEMINI_THINKING_LEVEL", "medium")
 DEFAULT_MAX_TOKENS = int(os.environ.get("GEMINI_MAX_OUTPUT_TOKENS", "65536"))
 MAX_FILE_SIZE_BYTES = 512 * 1024  # 512 KB per file
+MAX_TOOL_ROUNDS = 8
 
 
 def load_system_instruction(prompt_path: Path) -> str:
@@ -81,7 +86,12 @@ def format_file_context(file_paths: list[str | Path]) -> str:
     context_blocks: list[str] = []
 
     for raw_path in file_paths:
-        path = Path(raw_path)
+        try:
+            path = _resolve_safe_path(raw_path)
+        except PermissionError as err:
+            sys.stderr.write(f"WARNING: {err}\n")
+            continue
+
         if not path.is_file():
             sys.stderr.write(f"WARNING: File not found, skipping: {raw_path}\n")
             continue
@@ -96,8 +106,12 @@ def format_file_context(file_paths: list[str | Path]) -> str:
                 continue
 
             content = path.read_text(encoding="utf-8", errors="replace")
+            try:
+                display = path.relative_to(REPO_ROOT).as_posix()
+            except ValueError:
+                display = path.as_posix()
             context_blocks.append(
-                f"--- BEGIN FILE: {path.as_posix()} ---\n{content}\n--- END FILE: {path.as_posix()} ---"
+                f"--- BEGIN FILE: {display} ---\n{content}\n--- END FILE: {display} ---"
             )
         except Exception as err:
             sys.stderr.write(f"WARNING: Could not read {raw_path}: {err}\n")
@@ -221,46 +235,78 @@ def execute_interaction(
     previous_interaction_id: str | None = None,
     enable_tools: bool = True,
 ) -> tuple[str, str | None]:
-    """Execute the interaction, handling both streaming and synchronous modes."""
-    kwargs: dict[str, object] = {
-        "model": model,
-        "input": user_input,
-        "system_instruction": system_instruction,
-        "generation_config": generation_config,
-    }
-    if previous_interaction_id:
-        kwargs["previous_interaction_id"] = previous_interaction_id
-    if enable_tools:
-        kwargs["tools"] = TOOL_DEFINITIONS
-
-    output_chunks: list[str] = []
+    """Execute the interaction, including client-side function-call rounds."""
+    current_input: Any = user_input
+    current_previous_id = previous_interaction_id
+    last_text = ""
     interaction_id: str | None = None
+    tool_decls = FUNCTION_DECLARATIONS if enable_tools else None
 
-    if stream:
-        kwargs["stream"] = True
-        events = client.interactions.create(**kwargs)
-        for event in events:
-            event_type = getattr(event, "event_type", None)
-            if event_type == "step.delta":
-                delta = getattr(event, "delta", None)
-                if getattr(delta, "type", None) == "text":
-                    text = getattr(delta, "text", "")
-                    output_chunks.append(text)
-                    print(text, end="", flush=True)
-            elif event_type == "interaction.completed":
-                interaction_obj = getattr(event, "interaction", None)
-                if interaction_obj and hasattr(interaction_obj, "id"):
-                    interaction_id = interaction_obj.id
-                print()
-    else:
-        kwargs["stream"] = False
-        interaction = client.interactions.create(**kwargs)
-        text = getattr(interaction, "output_text", "")
-        output_chunks.append(text)
-        print(text)
-        interaction_id = getattr(interaction, "id", None)
+    for _round in range(MAX_TOOL_ROUNDS + 1):
+        kwargs: dict[str, object] = {
+            "model": model,
+            "input": current_input,
+            "system_instruction": system_instruction,
+            "generation_config": generation_config,
+        }
+        if current_previous_id:
+            kwargs["previous_interaction_id"] = current_previous_id
+        if tool_decls is not None:
+            kwargs["tools"] = tool_decls
 
-    return "".join(output_chunks), interaction_id
+        interaction: Any = None
+        round_chunks: list[str] = []
+        streamed_steps: list[Any] = []
+
+        if stream:
+            kwargs["stream"] = True
+            events = client.interactions.create(**kwargs)
+            for event in events:
+                event_type = getattr(event, "event_type", None)
+                if event_type == "step.delta":
+                    delta = getattr(event, "delta", None)
+                    if getattr(delta, "type", None) == "text":
+                        text = getattr(delta, "text", "")
+                        round_chunks.append(text)
+                        print(text, end="", flush=True)
+                elif event_type == "step.start":
+                    step = getattr(event, "step", None)
+                    if step is not None:
+                        streamed_steps.append(step)
+                elif event_type == "interaction.completed":
+                    interaction = getattr(event, "interaction", None)
+                    if interaction and hasattr(interaction, "id"):
+                        interaction_id = interaction.id
+                    print()
+        else:
+            kwargs["stream"] = False
+            interaction = client.interactions.create(**kwargs)
+            text = getattr(interaction, "output_text", "") or ""
+            if text:
+                print(text)
+            round_chunks.append(text)
+            interaction_id = getattr(interaction, "id", None)
+
+        last_text = "".join(round_chunks)
+        calls = collect_function_calls(interaction)
+        if not calls and streamed_steps:
+            calls = collect_function_calls(SimpleNamespace(steps=streamed_steps))
+        if not calls:
+            return last_text, interaction_id
+
+        results = []
+        for call in calls:
+            result_text = dispatch_tool(call["name"], call["arguments"])
+            sys.stderr.write(f"[tool] {call['name']}\n")
+            results.append(format_function_result(call, result_text))
+
+        current_input = results
+        current_previous_id = interaction_id
+
+    sys.stderr.write(
+        f"WARNING: Tool loop stopped after {MAX_TOOL_ROUNDS} rounds.\n"
+    )
+    return last_text, interaction_id
 
 
 def run_autonomous_pipeline(
@@ -484,7 +530,12 @@ def run_chat_loop(
 
         if user_input.startswith("/file "):
             file_arg = user_input[6:].strip()
-            if Path(file_arg).is_file():
+            try:
+                resolved = _resolve_safe_path(file_arg)
+            except PermissionError as err:
+                print(f"Error: {err}")
+                continue
+            if resolved.is_file():
                 attached_files.append(file_arg)
                 print(f"Attached file: {file_arg}")
             else:
@@ -584,7 +635,9 @@ def main() -> int:
         )
 
     try:
-        system_instruction = load_system_instruction(PROMPT_FILE)
+        system_instruction = compose_system_instruction(
+            load_system_instruction(PROMPT_FILE)
+        )
     except FileNotFoundError as err:
         sys.stderr.write(f"ERROR: {err}\n")
         return 1

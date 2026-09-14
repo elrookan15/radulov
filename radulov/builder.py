@@ -21,7 +21,43 @@ except ImportError:
     types = None  # type: ignore[assignment]
 
 
-from radulov.tools import run_tests
+from radulov import DEFAULT_MODEL
+from radulov.tools import _run_unittest
+
+BLOCKED_WRITE_DIR_NAMES = {".git", ".venv", "venv", ".radulov"}
+BLOCKED_WRITE_NAMES = {
+    ".env",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "credentials.json",
+    "service-account.json",
+}
+BLOCKED_WRITE_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
+
+
+def _is_blocked_write_path(rel_path: str) -> bool:
+    """Return True when a generated path targets VCS, env, or credential files."""
+    path = Path(rel_path)
+    if any(part in BLOCKED_WRITE_DIR_NAMES for part in path.parts):
+        return True
+    name = path.name
+    if name in BLOCKED_WRITE_NAMES or name.startswith(".env."):
+        return True
+    return path.suffix.lower() in BLOCKED_WRITE_SUFFIXES
+
+
+def _tests_failed(test_results: str) -> bool:
+    return "Test Suite Status: FAILED" in test_results or test_results.startswith("Error:")
+
+
+def _tests_passed(test_results: str) -> bool:
+    return "Test Suite Status: PASSED" in test_results
+
 
 BUILDER_PROMPT = """You are Aegis, the Lead Cyber-Architect executing construction for RADULOV.
 Implement the chosen architectural option with 100% completeness. No placeholders, no TODOs, no pseudo-code.
@@ -92,17 +128,25 @@ def _extract_builder_json(raw_text: str) -> dict[str, Any]:
 
 
 def _write_files_to_disk(files_list: list[dict[str, str]], repo_root: Path) -> list[str]:
-    """Write generated files to disk safely."""
+    """Write generated files to disk, refusing path traversal and sensitive targets."""
     written: list[str] = []
+    root = repo_root.resolve()
     for item in files_list:
         rel_path = item.get("path", "").strip()
         content = item.get("content", "")
         if not rel_path or not content:
             continue
 
-        target_file = (repo_root / rel_path).resolve()
-        # Security check: ensure path is within repo
-        target_file.relative_to(repo_root)
+        if _is_blocked_write_path(rel_path):
+            sys.stderr.write(f"WARNING: Refusing to write sensitive path: {rel_path}\n")
+            continue
+
+        try:
+            target_file = (root / rel_path).resolve()
+            target_file.relative_to(root)
+        except ValueError:
+            sys.stderr.write(f"WARNING: Refusing path traversal write: {rel_path}\n")
+            continue
 
         target_file.parent.mkdir(parents=True, exist_ok=True)
         target_file.write_text(content, encoding="utf-8")
@@ -118,7 +162,7 @@ def execute_autonomous_build(
     codebase_summary: str,
     repo_root: Path = Path("."),
     max_repair_attempts: int = 2,
-    model: str = "models/gemini-3.7-flash",
+    model: str = DEFAULT_MODEL,
 ) -> dict[str, Any]:
     """Generate complete files, write to disk, run tests, and self-correct if needed."""
     root = repo_root.resolve()
@@ -151,12 +195,12 @@ def execute_autonomous_build(
 
     # Run verification tests
     print("\n[Aegis Builder] Executing automated verification suite (Red-Green-Verify)...")
-    test_results = run_tests("tests")
+    test_results = _run_unittest(root, "tests")
     print(test_results)
 
     # Self-correction loop if tests fail
     attempt = 0
-    while "FAILED" in test_results and attempt < max_repair_attempts:
+    while _tests_failed(test_results) and attempt < max_repair_attempts:
         attempt += 1
         print(f"\n[Aegis Builder] Test failure detected. Initiating Self-Correction Attempt {attempt}/{max_repair_attempts}...")
 
@@ -182,12 +226,12 @@ def execute_autonomous_build(
                 for f in written_files:
                     print(f"  * Repaired: {f}")
 
-                test_results = run_tests("tests")
+                test_results = _run_unittest(root, "tests")
                 print(test_results)
             except Exception as err:
                 sys.stderr.write(f"Repair attempt {attempt} failed to parse: {err}\n")
 
-    passed = "PASSED" in test_results
+    passed = _tests_passed(test_results)
     return {
         "status": "SUCCESS" if passed else "COMPLETED_WITH_TEST_WARNINGS",
         "written_files": written_files,

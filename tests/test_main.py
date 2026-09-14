@@ -105,20 +105,19 @@ class TestRadulovCore(unittest.TestCase):
             load_system_instruction(Path("non_existent_prompt.md"))
 
     def test_format_file_context(self):
-        """Ensure format_file_context reads and demarcates local files correctly."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f1:
-            f1.write("print('hello')\n")
-            f1_path = Path(f1.name)
-
+        """Ensure format_file_context reads repo files and refuses paths outside the root."""
+        sample = Path("tests") / "_tmp_format_file_context.txt"
+        sample.write_text("print('hello')\n", encoding="utf-8")
         try:
             with patch("sys.stderr"):
-                context = format_file_context([f1_path, "non_existent_file.xyz"])
-            self.assertIn(f"--- BEGIN FILE: {f1_path.as_posix()} ---", context)
+                context = format_file_context([str(sample), "non_existent_file.xyz"])
+                outside = format_file_context(["/etc/passwd"])
+            self.assertIn("--- BEGIN FILE: tests/_tmp_format_file_context.txt ---", context)
             self.assertIn("print('hello')", context)
-            self.assertIn(f"--- END FILE: {f1_path.as_posix()} ---", context)
+            self.assertIn("--- END FILE: tests/_tmp_format_file_context.txt ---", context)
+            self.assertEqual(outside, "")
         finally:
-            if f1_path.exists():
-                f1_path.unlink()
+            sample.unlink(missing_ok=True)
 
 
     def test_execute_interaction_streaming(self):
@@ -160,6 +159,55 @@ class TestRadulovCore(unittest.TestCase):
             call_kwargs = mock_client.interactions.create.call_args[1]
             self.assertEqual(call_kwargs["previous_interaction_id"], "prev-001")
 
+    def test_execute_interaction_streaming_runs_tools_from_step_start(self):
+        """Streaming completed payloads may omit steps; collect function_call from step.start."""
+        mock_client = MagicMock()
+
+        start = MagicMock()
+        start.event_type = "step.start"
+        start.step.type = "function_call"
+        start.step.name = "read_file"
+        start.step.id = "call_readme"
+        start.step.arguments = {"file_path": "README.md", "max_lines": 2}
+
+        completed = MagicMock()
+        completed.event_type = "interaction.completed"
+        completed.interaction.id = "int-stream-1"
+        completed.interaction.steps = None
+
+        follow_delta = MagicMock()
+        follow_delta.event_type = "step.delta"
+        follow_delta.delta.type = "text"
+        follow_delta.delta.text = "README starts with RADULOV"
+
+        follow_done = MagicMock()
+        follow_done.event_type = "interaction.completed"
+        follow_done.interaction.id = "int-stream-2"
+        follow_done.interaction.steps = []
+
+        mock_client.interactions.create.side_effect = [
+            [start, completed],
+            [follow_delta, follow_done],
+        ]
+
+        with patch("builtins.print"), patch("sys.stderr"):
+            text, int_id = execute_interaction(
+                client=mock_client,
+                model="models/gemini-3.8-flash",
+                user_input="What is the README title?",
+                system_instruction="Prompt",
+                generation_config={"max_output_tokens": 1024},
+                stream=True,
+            )
+
+        self.assertEqual(text, "README starts with RADULOV")
+        self.assertEqual(int_id, "int-stream-2")
+        self.assertEqual(mock_client.interactions.create.call_count, 2)
+        follow_kwargs = mock_client.interactions.create.call_args_list[1].kwargs
+        self.assertEqual(follow_kwargs["previous_interaction_id"], "int-stream-1")
+        self.assertEqual(follow_kwargs["input"][0]["type"], "function_result")
+        self.assertIn("RADULOV", follow_kwargs["input"][0]["result"][0]["text"])
+
     def test_execute_interaction_sync(self):
         """Ensure synchronous interaction mode outputs text directly."""
         mock_client = MagicMock()
@@ -180,6 +228,55 @@ class TestRadulovCore(unittest.TestCase):
             self.assertEqual(text, "Synchronous response text")
             self.assertEqual(int_id, "int-sync-99")
             mock_print.assert_called_with("Synchronous response text")
+
+    def test_execute_interaction_sync_runs_tools_then_continues(self):
+        """Execute function_call steps locally and send function_result back."""
+        mock_client = MagicMock()
+
+        function_call = MagicMock()
+        function_call.type = "function_call"
+        function_call.name = "read_file"
+        function_call.id = "call_readme"
+        function_call.arguments = {"file_path": "README.md", "max_lines": 2}
+
+        first = MagicMock()
+        first.output_text = ""
+        first.id = "int-tool-1"
+        first.steps = [function_call]
+
+        second = MagicMock()
+        second.output_text = "README starts with RADULOV"
+        second.id = "int-tool-2"
+        second.steps = []
+
+        mock_client.interactions.create.side_effect = [first, second]
+
+        with patch("builtins.print"), patch("sys.stderr"):
+            text, int_id = execute_interaction(
+                client=mock_client,
+                model="models/gemini-3.8-flash",
+                user_input="What is the README title?",
+                system_instruction="Prompt",
+                generation_config={"max_output_tokens": 1024},
+                stream=False,
+            )
+
+        self.assertEqual(text, "README starts with RADULOV")
+        self.assertEqual(int_id, "int-tool-2")
+        self.assertEqual(mock_client.interactions.create.call_count, 2)
+
+        first_kwargs = mock_client.interactions.create.call_args_list[0].kwargs
+        self.assertTrue(first_kwargs["tools"])
+        self.assertIsInstance(first_kwargs["tools"][0], dict)
+        self.assertEqual(first_kwargs["tools"][0]["type"], "function")
+
+        follow_up = mock_client.interactions.create.call_args_list[1].kwargs
+        self.assertEqual(follow_up["previous_interaction_id"], "int-tool-1")
+        payload = follow_up["input"]
+        self.assertEqual(payload[0]["type"], "function_result")
+        self.assertEqual(payload[0]["name"], "read_file")
+        self.assertEqual(payload[0]["call_id"], "call_readme")
+        self.assertIn("RADULOV", payload[0]["result"][0]["text"])
 
     def test_save_session_turn(self):
         """Ensure session turn logs are correctly appended to JSONL file."""
