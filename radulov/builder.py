@@ -226,30 +226,30 @@ def execute_autonomous_build(
             previous_files_json=json.dumps(files_list, indent=2),
         )
 
-        repair_resp = generate_content_with_retry(
-            client,
-            model=model,
-            contents=repair_prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                thinking_config=types.ThinkingConfig(thinking_budget=16384),
-            ),
-        )
+        try:
+            repair_resp = generate_content_with_retry(
+                client,
+                model=model,
+                contents=repair_prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    thinking_config=types.ThinkingConfig(thinking_budget=16384),
+                ),
+            )
+            if not repair_resp or not repair_resp.text:
+                raise RuntimeError("Empty model response during repair.")
+            repaired_data = _extract_builder_json(repair_resp.text)
+            files_list = repaired_data.get("files", [])
+            written_files = _write_files_to_disk(files_list, root)
+            for f in written_files:
+                if f not in all_written:
+                    all_written.append(f)
+                print(f"  * Repaired: {f}")
 
-        if repair_resp and repair_resp.text:
-            try:
-                repaired_data = _extract_builder_json(repair_resp.text)
-                files_list = repaired_data.get("files", [])
-                written_files = _write_files_to_disk(files_list, root)
-                for f in written_files:
-                    if f not in all_written:
-                        all_written.append(f)
-                    print(f"  * Repaired: {f}")
-
-                test_results = _run_unittest(root, "tests")
-                print(test_results)
-            except Exception as err:
-                sys.stderr.write(f"Repair attempt {attempt} failed to parse: {err}\n")
+            test_results = _run_unittest(root, "tests")
+            print(test_results)
+        except Exception as err:
+            sys.stderr.write(f"Repair attempt {attempt} failed: {err}\n")
 
     passed = _tests_passed(test_results)
     return {

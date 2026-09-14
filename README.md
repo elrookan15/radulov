@@ -54,7 +54,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
     ├── test_mcp.py             # MCP client & Gemini docs unit tests (14 tests)
     ├── test_skills.py          # Skills engine unit tests (7 tests)
     ├── test_pipeline.py        # Scanner, synthesizer, builder, and research unit tests (7 tests)
-    └── test_retry.py           # Gemini 503 retry and builder write-accounting tests (5 tests)
+    └── test_retry.py           # Gemini 503 retry and builder write-accounting tests (6 tests)
 ```
 
 ## Prerequisites
@@ -175,7 +175,7 @@ python main.py --no-stream -i "Summarize database requirements."
 
 ## Testing
 
-Run the automated test suite (58 unit tests):
+Run the automated test suite (59 unit tests):
 
 ```bash
 python -m unittest discover -s tests -v

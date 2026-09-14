@@ -149,6 +149,53 @@ class TestBuilderWriteAccounting(unittest.TestCase):
                 ["examples/a.py", "tests/test_a.py"],
             )
 
+    def test_repair_exhausted_503_does_not_crash(self):
+        """Repair 503s after retries must fail closed, not abort the build."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "tests").mkdir()
+            first = MagicMock()
+            first.text = json.dumps(
+                {
+                    "files": [
+                        {"path": "examples/a.py", "content": "x = 1\n"},
+                        {
+                            "path": "tests/test_a.py",
+                            "content": "import unittest\n",
+                        },
+                    ],
+                    "build_notes": "initial",
+                }
+            )
+            client = MagicMock()
+            client.models.generate_content.side_effect = [
+                first,
+                FakeAPIError(503, "UNAVAILABLE"),
+                FakeAPIError(503, "UNAVAILABLE"),
+                FakeAPIError(503, "UNAVAILABLE"),
+            ]
+            fail = "Test Suite Status: FAILED (exit code 1)\n"
+            with patch(
+                "radulov.builder._run_unittest", return_value=fail
+            ), patch("radulov.retry.time.sleep"), patch("builtins.print"), patch(
+                "sys.stderr"
+            ):
+                result = execute_autonomous_build(
+                    client,
+                    {"title": "Option A"},
+                    "goal",
+                    "summary",
+                    repo_root=root,
+                    max_repair_attempts=1,
+                )
+
+            self.assertEqual(result["status"], "COMPLETED_WITH_TEST_WARNINGS")
+            self.assertEqual(result["repair_attempts"], 1)
+            self.assertEqual(
+                result["written_files"],
+                ["examples/a.py", "tests/test_a.py"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
