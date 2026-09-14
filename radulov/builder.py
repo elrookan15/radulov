@@ -39,17 +39,52 @@ BLOCKED_WRITE_NAMES = {
     "service-account.json",
 }
 BLOCKED_WRITE_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
+PROTECTED_WRITE_PATHS = {
+    "AGENTS.md",
+    "main.py",
+    "pyproject.toml",
+    "requirements.txt",
+    ".gitignore",
+}
+PROTECTED_WRITE_PREFIXES = (".github/", "radulov/", "prompts/")
+
+
+def _normalize_rel_path(rel_path: str) -> str:
+    """Normalize a builder-relative path for allowlist and protection checks."""
+    return Path(rel_path.strip()).as_posix()
 
 
 def _is_blocked_write_path(rel_path: str) -> bool:
     """Return True when a generated path targets VCS, env, or credential files."""
-    path = Path(rel_path)
+    path = Path(_normalize_rel_path(rel_path))
     if any(part in BLOCKED_WRITE_DIR_NAMES for part in path.parts):
         return True
     name = path.name
     if name in BLOCKED_WRITE_NAMES or name.startswith(".env."):
         return True
     return path.suffix.lower() in BLOCKED_WRITE_SUFFIXES
+
+
+def _is_protected_write_path(rel_path: str) -> bool:
+    """Return True for engine, prompt, and packaging files that must never be rewritten."""
+    rel = _normalize_rel_path(rel_path)
+    if rel in PROTECTED_WRITE_PATHS:
+        return True
+    return any(rel == prefix[:-1] or rel.startswith(prefix) for prefix in PROTECTED_WRITE_PREFIXES)
+
+
+def _allowlist_from_option(chosen_option: dict[str, Any]) -> set[str]:
+    """Return option-declared paths that may overwrite preexisting files."""
+    raw = chosen_option.get("files_to_create_or_modify") or []
+    allowed: set[str] = set()
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return allowed
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            allowed.add(_normalize_rel_path(item))
+    return allowed
 
 
 def _tests_failed(test_results: str) -> bool:
@@ -89,6 +124,7 @@ CONSTRUCTION MANDATES:
   "build_notes": "<summary of what was built and security measures applied>"
 }}
 5. Use this repository's existing unittest suite. Do not import pytest or add third-party test frameworks unless they already appear in pyproject.toml / requirements.txt.
+6. Emit only new feature files and tests declared in the option. Never emit main.py, AGENTS.md, radulov/, prompts/, or packaging/CI files.
 """
 
 REPAIR_PROMPT = """The unit tests failed after applying the patch. Self-correct the implementation according to the Aegis Red-Green-Verify protocol.
@@ -129,9 +165,15 @@ def _extract_builder_json(raw_text: str) -> dict[str, Any]:
         raise ValueError(f"Could not parse valid JSON from builder output:\n{raw_text[:500]}")
 
 
-def _write_files_to_disk(files_list: list[dict[str, str]], repo_root: Path) -> list[str]:
-    """Write generated files to disk, refusing path traversal and sensitive targets."""
+def _write_files_to_disk(
+    files_list: list[dict[str, str]],
+    repo_root: Path,
+    *,
+    allowed_overwrite: set[str] | None = None,
+) -> list[str]:
+    """Write generated files, refusing secrets, core engine paths, and undeclared overwrites."""
     written: list[str] = []
+    allowed = allowed_overwrite or set()
     root = repo_root.resolve()
     for item in files_list:
         rel_path = item.get("path", "").strip()
@@ -139,8 +181,16 @@ def _write_files_to_disk(files_list: list[dict[str, str]], repo_root: Path) -> l
         if not rel_path or not content:
             continue
 
+        rel_path = _normalize_rel_path(rel_path)
+
         if _is_blocked_write_path(rel_path):
             sys.stderr.write(f"WARNING: Refusing to write sensitive path: {rel_path}\n")
+            continue
+
+        if _is_protected_write_path(rel_path):
+            sys.stderr.write(
+                f"WARNING: Refusing to write protected engine/config path: {rel_path}\n"
+            )
             continue
 
         try:
@@ -148,6 +198,13 @@ def _write_files_to_disk(files_list: list[dict[str, str]], repo_root: Path) -> l
             target_file.relative_to(root)
         except ValueError:
             sys.stderr.write(f"WARNING: Refusing path traversal write: {rel_path}\n")
+            continue
+
+        if target_file.exists() and rel_path not in allowed:
+            sys.stderr.write(
+                f"WARNING: Refusing to overwrite existing file not in the "
+                f"chosen option: {rel_path}\n"
+            )
             continue
 
         target_file.parent.mkdir(parents=True, exist_ok=True)
@@ -201,11 +258,15 @@ def execute_autonomous_build(
 
     build_data = _extract_builder_json(response.text)
     files_list = build_data.get("files", [])
-    written_files = _write_files_to_disk(files_list, root)
+    allowed_overwrite = _allowlist_from_option(chosen_option)
+    written_files = _write_files_to_disk(
+        files_list, root, allowed_overwrite=allowed_overwrite
+    )
     all_written: list[str] = []
     for path in written_files:
         if path not in all_written:
             all_written.append(path)
+            allowed_overwrite.add(path)
 
     for f in written_files:
         print(f"  + Generated: {f}")
@@ -240,10 +301,13 @@ def execute_autonomous_build(
                 raise RuntimeError("Empty model response during repair.")
             repaired_data = _extract_builder_json(repair_resp.text)
             files_list = repaired_data.get("files", [])
-            written_files = _write_files_to_disk(files_list, root)
+            written_files = _write_files_to_disk(
+                files_list, root, allowed_overwrite=allowed_overwrite
+            )
             for f in written_files:
                 if f not in all_written:
                     all_written.append(f)
+                    allowed_overwrite.add(f)
                 print(f"  * Repaired: {f}")
 
             test_results = _run_unittest(root, "tests")

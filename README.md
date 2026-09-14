@@ -53,7 +53,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
     ├── test_tools.py           # Grounded tools unit tests (13 tests)
     ├── test_mcp.py             # MCP client & Gemini docs unit tests (14 tests)
     ├── test_skills.py          # Skills engine unit tests (7 tests)
-    ├── test_pipeline.py        # Scanner, synthesizer, builder, and research unit tests (7 tests)
+    ├── test_pipeline.py        # Scanner, synthesizer, builder, and research unit tests (10 tests)
     └── test_retry.py           # Gemini 503 retry and builder write-accounting tests (6 tests)
 ```
 
@@ -175,7 +175,7 @@ python main.py --no-stream -i "Summarize database requirements."
 
 ## Testing
 
-Run the automated test suite (59 unit tests):
+Run the automated test suite (62 unit tests):
 
 ```bash
 python -m unittest discover -s tests -v
@@ -186,6 +186,7 @@ python main.py --run-tests
 ## Security & Best Practices
 
 - **Path Traversal Protection**: `radulov.tools` and file attach (`-f` / `/file`) refuse paths outside the repository root. The builder also refuses `.env`, VCS, and credential targets.
+- **Overwrite Guard**: The builder will not replace an existing file unless the chosen option listed it, and it never writes `main.py`, `AGENTS.md`, `radulov/`, `prompts/`, or packaging/CI paths.
 - **Bounded Research Budget**: `radulov.researcher` enforces a hard 120-second timeout ceiling to prevent runaway latency.
 - **Transient Gemini Retries**: `generate_content` calls retry `503 UNAVAILABLE` (and other 5xx) with exponential backoff. Quota `429` errors are not retried.
 - **Red-Green-Verify Self-Correction**: `radulov.builder` executes tests immediately after writing code; if tests fail, it diagnoses and repairs the defect automatically before completion.
