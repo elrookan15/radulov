@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from radulov.builder import execute_autonomous_build
 from radulov.retry import generate_content_with_retry, is_retryable_gemini_error
 from radulov.synthesizer import synthesize_dual_options
+from radulov import FALLBACK_MODEL
 
 
 class FakeAPIError(Exception):
@@ -83,6 +84,81 @@ class TestGeminiRetry(unittest.TestCase):
             )
         self.assertEqual(result["option_a"]["title"], "A")
         self.assertEqual(client.models.generate_content.call_count, 2)
+
+    def test_falls_back_to_lite_after_primary_exhausted(self):
+        """After primary model burns all 503 retries, try FALLBACK_MODEL."""
+        client = MagicMock()
+        ok = MagicMock()
+        ok.text = '{"ok": true}'
+        client.models.generate_content.side_effect = [
+            FakeAPIError(503, "UNAVAILABLE"),
+            FakeAPIError(503, "UNAVAILABLE"),
+            FakeAPIError(503, "UNAVAILABLE"),
+            ok,
+        ]
+        sleeps: list[float] = []
+        with patch("sys.stderr"):
+            result = generate_content_with_retry(
+                client,
+                max_attempts=3,
+                backoff_sec=0.5,
+                sleeper=sleeps.append,
+                model="models/gemini-3.8-flash",
+                contents="prompt",
+            )
+        self.assertIs(result, ok)
+        self.assertEqual(client.models.generate_content.call_count, 4)
+        models = [
+            call.kwargs["model"]
+            for call in client.models.generate_content.call_args_list
+        ]
+        self.assertEqual(
+            models,
+            [
+                "models/gemini-3.8-flash",
+                "models/gemini-3.8-flash",
+                "models/gemini-3.8-flash",
+                FALLBACK_MODEL,
+            ],
+        )
+        self.assertEqual(sleeps, [0.5, 1.0])
+
+    def test_fallback_disabled_with_empty_chain(self):
+        """fallback_models=() disables model switching after retries."""
+        client = MagicMock()
+        client.models.generate_content.side_effect = FakeAPIError(
+            503, "UNAVAILABLE"
+        )
+        with self.assertRaises(FakeAPIError), patch("sys.stderr"), patch(
+            "radulov.retry.time.sleep"
+        ):
+            generate_content_with_retry(
+                client,
+                max_attempts=2,
+                fallback_models=(),
+                model="models/gemini-3.8-flash",
+                contents="prompt",
+            )
+        self.assertEqual(client.models.generate_content.call_count, 2)
+
+    def test_quota_error_does_not_trigger_model_fallback(self):
+        """429 RESOURCE_EXHAUSTED must fail immediately without switching models."""
+        client = MagicMock()
+        client.models.generate_content.side_effect = FakeAPIError(
+            429, "RESOURCE_EXHAUSTED"
+        )
+        with self.assertRaises(FakeAPIError):
+            generate_content_with_retry(
+                client,
+                max_attempts=3,
+                model="models/gemini-3.8-flash",
+                contents="prompt",
+            )
+        self.assertEqual(client.models.generate_content.call_count, 1)
+        self.assertEqual(
+            client.models.generate_content.call_args.kwargs["model"],
+            "models/gemini-3.8-flash",
+        )
 
 
 class TestBuilderWriteAccounting(unittest.TestCase):
@@ -170,6 +246,11 @@ class TestBuilderWriteAccounting(unittest.TestCase):
             client = MagicMock()
             client.models.generate_content.side_effect = [
                 first,
+                # Primary model repair attempts
+                FakeAPIError(503, "UNAVAILABLE"),
+                FakeAPIError(503, "UNAVAILABLE"),
+                FakeAPIError(503, "UNAVAILABLE"),
+                # Fallback model repair attempts
                 FakeAPIError(503, "UNAVAILABLE"),
                 FakeAPIError(503, "UNAVAILABLE"),
                 FakeAPIError(503, "UNAVAILABLE"),
@@ -195,7 +276,7 @@ class TestBuilderWriteAccounting(unittest.TestCase):
                 result["written_files"],
                 ["examples/a.py", "tests/test_a.py"],
             )
-
+            self.assertEqual(client.models.generate_content.call_count, 7)
 
 if __name__ == "__main__":
     unittest.main()
