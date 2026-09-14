@@ -100,6 +100,69 @@ class TestRadulovPipeline(unittest.TestCase):
             self.assertFalse((tmp_root / "keys" / "credentials.json").exists())
             self.assertFalse((tmp_root.parent / "escape.py").exists())
 
+    def test_write_files_refuses_undeclared_overwrite(self):
+        """Existing files cannot be replaced unless the chosen option listed them."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            target = tmp_root / "README.md"
+            target.write_text("keep\n", encoding="utf-8")
+            with patch("sys.stderr"):
+                written = _write_files_to_disk(
+                    [{"path": "README.md", "content": "clobber\n"}],
+                    tmp_root,
+                    allowed_overwrite=set(),
+                )
+            self.assertEqual(written, [])
+            self.assertEqual(target.read_text(encoding="utf-8"), "keep\n")
+
+    def test_write_files_allows_declared_overwrite(self):
+        """Option-listed paths may be overwritten; unlisted neighbors may not."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            allowed = tmp_root / "src" / "module.py"
+            neighbor = tmp_root / "src" / "keep.py"
+            allowed.parent.mkdir(parents=True)
+            allowed.write_text("old\n", encoding="utf-8")
+            neighbor.write_text("neighbor\n", encoding="utf-8")
+            with patch("sys.stderr"):
+                written = _write_files_to_disk(
+                    [
+                        {"path": "src/module.py", "content": "new\n"},
+                        {"path": "src/keep.py", "content": "nope\n"},
+                    ],
+                    tmp_root,
+                    allowed_overwrite={"src/module.py"},
+                )
+            self.assertEqual(written, ["src/module.py"])
+            self.assertEqual(allowed.read_text(encoding="utf-8"), "new\n")
+            self.assertEqual(neighbor.read_text(encoding="utf-8"), "neighbor\n")
+
+    def test_write_files_refuses_protected_engine_paths(self):
+        """Core engine/config paths are refused even when listed for overwrite."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            (tmp_root / "main.py").write_text("engine\n", encoding="utf-8")
+            with patch("sys.stderr"):
+                written = _write_files_to_disk(
+                    [
+                        {"path": "main.py", "content": "pwned\n"},
+                        {"path": "AGENTS.md", "content": "pwned\n"},
+                        {"path": "radulov/tools.py", "content": "pwned\n"},
+                        {"path": "prompts/aegis_system_prompt.md", "content": "pwned\n"},
+                    ],
+                    tmp_root,
+                    allowed_overwrite={
+                        "main.py",
+                        "AGENTS.md",
+                        "radulov/tools.py",
+                        "prompts/aegis_system_prompt.md",
+                    },
+                )
+            self.assertEqual(written, [])
+            self.assertEqual((tmp_root / "main.py").read_text(encoding="utf-8"), "engine\n")
+            self.assertFalse((tmp_root / "AGENTS.md").exists())
+            self.assertFalse((tmp_root / "radulov" / "tools.py").exists())
+
     def test_research_timeout_returns_without_waiting_on_worker(self):
         """Ensure the 120s research cap returns even if the worker is still running."""
 
