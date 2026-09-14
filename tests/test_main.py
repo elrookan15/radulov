@@ -12,10 +12,13 @@ from main import (
     DEFAULT_MODEL,
     DEFAULT_THINKING_LEVEL,
     PROMPT_FILE,
+    _new_session_file,
     execute_interaction,
     format_file_context,
+    handle_chat_command,
     load_system_instruction,
     parse_args,
+    run_chat_loop,
     save_session_turn,
 )
 
@@ -300,6 +303,117 @@ class TestRadulovCore(unittest.TestCase):
         finally:
             if session_path.exists():
                 session_path.unlink()
+
+    def test_bare_slash_commands_show_usage_not_model(self):
+        """Bare slash commands must be consumed locally with usage text."""
+        session = {
+            "previous_interaction_id": "keep-me",
+            "turn": 3,
+            "session_file": Path("unused.jsonl"),
+            "should_exit": False,
+        }
+        attached: list[str] = []
+        client = MagicMock()
+        for command, needle in (
+            ("/build", "Usage: /build"),
+            ("/docs", "Usage: /docs"),
+            ("/file", "Usage: /file"),
+            ("/skill", "Usage: /skill"),
+            ("/read", "Usage: /read"),
+            ("/grep", "Usage: /grep"),
+            ("/doc", "Usage: /doc"),
+        ):
+            with patch("builtins.print") as mock_print:
+                handled = handle_chat_command(
+                    command,
+                    client=client,
+                    model="models/gemini-3.8-flash",
+                    attached_files=attached,
+                    session=session,
+                )
+            self.assertTrue(handled, command)
+            printed = " ".join(str(call.args[0]) for call in mock_print.call_args_list)
+            self.assertIn(needle, printed)
+        self.assertEqual(session["previous_interaction_id"], "keep-me")
+        self.assertFalse(session["should_exit"])
+        client.interactions.create.assert_not_called()
+
+    def test_unknown_slash_command_not_sent_to_model(self):
+        """Unknown slash commands stay in the REPL and never reach Gemini."""
+        session = {
+            "previous_interaction_id": None,
+            "turn": 0,
+            "session_file": Path("unused.jsonl"),
+            "should_exit": False,
+        }
+        with patch("builtins.print") as mock_print:
+            handled = handle_chat_command(
+                "/not-a-real-command",
+                client=MagicMock(),
+                model="models/gemini-3.8-flash",
+                attached_files=[],
+                session=session,
+            )
+        self.assertTrue(handled)
+        printed = " ".join(str(call.args[0]) for call in mock_print.call_args_list)
+        self.assertIn("Unknown command", printed)
+
+    def test_clear_rotates_session_transcript(self):
+        """/clear must reset turn state and point at a new session JSONL path."""
+        original = _new_session_file()
+        session = {
+            "previous_interaction_id": "int-old",
+            "turn": 4,
+            "session_file": original,
+            "should_exit": False,
+        }
+        attached = ["README.md"]
+        with patch("builtins.print"):
+            handled = handle_chat_command(
+                "/clear",
+                client=MagicMock(),
+                model="models/gemini-3.8-flash",
+                attached_files=attached,
+                session=session,
+            )
+        self.assertTrue(handled)
+        self.assertIsNone(session["previous_interaction_id"])
+        self.assertEqual(session["turn"], 0)
+        self.assertEqual(attached, [])
+        self.assertNotEqual(session["session_file"], original)
+        self.assertTrue(str(session["session_file"]).endswith(".jsonl"))
+
+    def test_chat_loop_keyboard_interrupt_during_generation_preserves_session(self):
+        """Ctrl+C mid-generation must not kill the REPL or advance the turn counter."""
+        inputs = iter(["hello", "/history", "/exit"])
+
+        def _fake_input(_prompt: str = "") -> str:
+            return next(inputs)
+
+        with (
+            patch("builtins.input", side_effect=_fake_input),
+            patch("builtins.print") as mock_print,
+            patch(
+                "main.execute_interaction",
+                side_effect=KeyboardInterrupt(),
+            ) as mock_execute,
+            patch("main._new_session_file", return_value=Path("session_test.jsonl")),
+        ):
+            code = run_chat_loop(
+                client=MagicMock(),
+                model="models/gemini-3.8-flash",
+                system_instruction="Prompt",
+                generation_config={"max_output_tokens": 128},
+                initial_files=[],
+                stream=True,
+                enable_tools=False,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(mock_execute.call_count, 1)
+        printed = "\n".join(str(call.args[0]) for call in mock_print.call_args_list if call.args)
+        self.assertIn("Generation interrupted", printed)
+        self.assertIn("Total turns: 0", printed)
 
 
 if __name__ == "__main__":
