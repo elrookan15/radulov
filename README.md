@@ -46,6 +46,8 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 │   └── builder.py              # Autonomous code construction & Red-Green-Verify self-correction
 ├── archive/
 │   └── ai_studio_code.py       # Archived raw export from Google AI Studio
+├── examples/
+│   └── iso8601_duration.py     # Standalone ISO-8601 duration parser (stdlib only)
 ├── prompts/
 │   └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
 └── tests/
@@ -54,7 +56,8 @@ Autonomous engineering intelligence and Gemini client interface configured with 
     ├── test_mcp.py             # MCP client & Gemini docs unit tests (19 tests)
     ├── test_skills.py          # Skills engine unit tests (7 tests)
     ├── test_pipeline.py        # Scanner, synthesizer, builder, and research unit tests (10 tests)
-    └── test_retry.py           # Gemini 503 retry and builder write-accounting tests (6 tests)
+    ├── test_retry.py           # Gemini 503 retry and builder write-accounting tests (6 tests)
+    └── test_iso8601_duration.py # ISO-8601 duration parser unit tests (10 tests)
 ```
 
 ## Prerequisites
@@ -175,7 +178,7 @@ python main.py --no-stream -i "Summarize database requirements."
 
 ## Testing
 
-Run the automated test suite (67 unit tests):
+Run the automated test suite (77 unit tests):
 
 ```bash
 python -m unittest discover -s tests -v
