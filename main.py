@@ -422,6 +422,171 @@ def save_session_turn(
         sys.stderr.write(f"WARNING: Failed to log session transcript: {err}\n")
 
 
+def _new_session_file() -> Path:
+    """Create a timestamped session transcript path under SESSIONS_DIR."""
+    session_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y%m%d_%H%M%S_%f"
+    )
+    return SESSIONS_DIR / f"session_{session_timestamp}.jsonl"
+
+
+def print_chat_help(model: str | None = None) -> None:
+    """Print the interactive REPL command banner."""
+    print("=" * 65)
+    if model:
+        print(f"RADULOV Interactive Console — Aegis Architecture ({model})")
+    else:
+        print("RADULOV Interactive Console — Commands")
+    print("Commands:")
+    print("  /help          — Show this command list")
+    print("  /build <goal>  — Run Deep Research & Construction Pipeline")
+    print("  /skills        — List all discovered agent skills")
+    print("  /skill <name>  — View instructions for a specific skill")
+    print("  /docs <query>  — Search official Gemini API & SDK docs (MCP)")
+    print("  /doc <chunk_id>— Retrieve Gemini doc chunk (MCP)")
+    print("  /file <path>   — Attach file to context")
+    print("  /read <path>   — Inspect file locally")
+    print("  /grep <term>   — Search repository code")
+    print("  /ls [path]     — List directory tree")
+    print("  /test [dir]    — Run unit test suite")
+    print("  /clear         — Reset conversational state (new session file)")
+    print("  /history       — View session metrics")
+    print("  /exit          — Quit console")
+    print("=" * 65)
+
+
+def _split_slash_command(user_input: str) -> tuple[str, str] | None:
+    """Return (command, argument) for slash inputs, else None."""
+    if not user_input.startswith("/"):
+        return None
+    if " " in user_input:
+        command, argument = user_input.split(" ", 1)
+        return command.lower(), argument.strip()
+    return user_input.lower(), ""
+
+
+def handle_chat_command(
+    user_input: str,
+    *,
+    client: genai.Client,
+    model: str,
+    attached_files: list[str],
+    session: dict[str, Any],
+) -> bool:
+    """Handle a slash command. Return True when the input was consumed."""
+    parsed = _split_slash_command(user_input)
+    if parsed is None:
+        return False
+
+    command, argument = parsed
+
+    if command in ("/exit", "/quit"):
+        session["should_exit"] = True
+        print("Session ended.")
+        return True
+
+    if command in ("/help", "/?"):
+        print_chat_help()
+        return True
+
+    if command in ("/clear", "/reset"):
+        session["previous_interaction_id"] = None
+        session["turn"] = 0
+        session["session_file"] = _new_session_file()
+        attached_files.clear()
+        print(
+            "Conversation state reset. New session transcript: "
+            f"{session['session_file']}"
+        )
+        return True
+
+    if command == "/build":
+        if not argument:
+            print("Usage: /build <feature or goal description>")
+            return True
+        run_autonomous_pipeline(client, argument, model=model)
+        return True
+
+    if command in ("/skills", "/list-skills"):
+        print(list_skills())
+        return True
+
+    if command == "/skill":
+        if not argument:
+            print("Usage: /skill <name>")
+            return True
+        print(read_skill(argument))
+        return True
+
+    if command in ("/docs", "/gemini-docs"):
+        if not argument:
+            print("Usage: /docs <query>")
+            return True
+        print(search_gemini_docs(argument))
+        return True
+
+    if command in ("/doc", "/gemini-doc"):
+        if not argument:
+            print("Usage: /doc <chunk_id>")
+            return True
+        print(get_gemini_doc(argument))
+        return True
+
+    if command == "/read":
+        if not argument:
+            print("Usage: /read <path>")
+            return True
+        print(read_file(argument))
+        return True
+
+    if command == "/grep":
+        if not argument:
+            print("Usage: /grep <term>")
+            return True
+        print(search_code(argument))
+        return True
+
+    if command == "/ls":
+        print(list_directory(argument or "."))
+        return True
+
+    if command == "/test":
+        print(run_tests(argument or "tests"))
+        return True
+
+    if command == "/file":
+        if not argument:
+            print("Usage: /file <path>")
+            return True
+        try:
+            resolved = _resolve_safe_path(argument)
+        except PermissionError as err:
+            print(f"Error: {err}")
+            return True
+        if resolved.is_file():
+            attached_files.append(argument)
+            print(f"Attached file: {argument}")
+        else:
+            print(f"Error: File not found: {argument}")
+        return True
+
+    if command == "/history":
+        print(
+            f"Total turns: {session['turn']} | "
+            f"Current Interaction ID: {session['previous_interaction_id'] or 'None'}"
+        )
+        print(
+            f"Attached files: "
+            f"{', '.join(attached_files) if attached_files else 'None'}"
+        )
+        print(f"Session transcript: {session['session_file']}")
+        return True
+
+    # Unknown slash command — keep it in the REPL, do not send to the model.
+    print(f"Unknown command: {command}. Type /help for available commands.")
+    return True
+
+
 def run_chat_loop(
     client: genai.Client,
     model: str,
@@ -432,37 +597,20 @@ def run_chat_loop(
     enable_tools: bool = True,
 ) -> int:
     """Run an interactive multi-turn REPL loop maintaining server-side state."""
-    session_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
-        "%Y%m%d_%H%M%S"
-    )
-    session_file = SESSIONS_DIR / f"session_{session_timestamp}.jsonl"
-
-    print("=" * 65)
-    print(f"RADULOV Interactive Console — Aegis Architecture ({model})")
-    print("Commands:")
-    print("  /build <goal>  — Run Deep Research & Construction Pipeline")
-    print("  /skills        — List all discovered agent skills")
-    print("  /skill <name>  — View instructions for a specific skill")
-    print("  /docs <query>  — Search official Gemini API & SDK docs (MCP)")
-    print("  /doc <chunk_id>— Retrieve Gemini doc chunk (MCP)")
-    print("  /file <path>   — Attach file to context")
-    print("  /read <path>   — Inspect file locally")
-    print("  /grep <term>   — Search repository code")
-    print("  /ls [path]     — List directory tree")
-    print("  /test          — Run unit test suite")
-    print("  /clear         — Reset conversational state")
-    print("  /history       — View session metrics")
-    print("  /exit          — Quit console")
-    print("=" * 65)
-
-    previous_interaction_id: str | None = None
+    session: dict[str, Any] = {
+        "previous_interaction_id": None,
+        "turn": 0,
+        "session_file": _new_session_file(),
+        "should_exit": False,
+    }
     attached_files: list[str] = list(initial_files)
-    turn = 0
+
+    print_chat_help(model)
 
     if attached_files:
         print(f"Attached context files: {', '.join(attached_files)}")
 
-    while True:
+    while not session["should_exit"]:
         try:
             user_input = input("\nradulov> ").strip()
         except (KeyboardInterrupt, EOFError):
@@ -472,90 +620,39 @@ def run_chat_loop(
         if not user_input:
             continue
 
-        if user_input in ("/exit", "/quit"):
-            print("Session ended.")
-            break
-
-        if user_input in ("/clear", "/reset"):
-            previous_interaction_id = None
-            attached_files.clear()
-            print("Conversation state reset. Started fresh session context.")
+        if handle_chat_command(
+            user_input,
+            client=client,
+            model=model,
+            attached_files=attached_files,
+            session=session,
+        ):
             continue
 
-        if user_input.startswith("/build "):
-            goal_arg = user_input[7:].strip()
-            if goal_arg:
-                run_autonomous_pipeline(client, goal_arg, model=model)
-            else:
-                print("Usage: /build <feature or goal description>")
-            continue
-
-        # Local command shortcuts
-        if user_input in ("/skills", "/list-skills"):
-            print(list_skills())
-            continue
-
-        if user_input.startswith("/skill "):
-            skill_arg = user_input[7:].strip()
-            print(read_skill(skill_arg))
-            continue
-
-        if user_input.startswith(("/docs ", "/gemini-docs ")):
-            doc_query = user_input.split(" ", 1)[1].strip()
-            print(search_gemini_docs(doc_query))
-            continue
-
-        if user_input.startswith(("/doc ", "/gemini-doc ")):
-            chunk_arg = user_input.split(" ", 1)[1].strip()
-            print(get_gemini_doc(chunk_arg))
-            continue
-
-        if user_input.startswith("/read "):
-            print(read_file(user_input[6:].strip()))
-            continue
-
-        if user_input.startswith("/grep "):
-            print(search_code(user_input[6:].strip()))
-            continue
-
-        if user_input.startswith("/ls"):
-            sub_path = user_input[3:].strip() or "."
-            print(list_directory(sub_path))
-            continue
-
-        if user_input.startswith("/test"):
-            test_arg = user_input[5:].strip() or "tests"
-            print(run_tests(test_arg))
-            continue
-
-        if user_input.startswith("/file "):
-            file_arg = user_input[6:].strip()
-            try:
-                resolved = _resolve_safe_path(file_arg)
-            except PermissionError as err:
-                print(f"Error: {err}")
-                continue
-            if resolved.is_file():
-                attached_files.append(file_arg)
-                print(f"Attached file: {file_arg}")
-            else:
-                print(f"Error: File not found: {file_arg}")
-            continue
-
-        if user_input == "/history":
-            print(f"Total turns: {turn} | Current Interaction ID: {previous_interaction_id or 'None'}")
-            print(f"Attached files: {', '.join(attached_files) if attached_files else 'None'}")
-            continue
-
-        # Prepare payload with any attached file context
+        # Prepare payload with any attached file context.
+        # Only drop attachments that successfully loaded into context.
         payload = user_input
         if attached_files:
-            file_context = format_file_context(attached_files)
-            if file_context:
-                payload = f"Context files:\n{file_context}\n\nUser request:\n{user_input}"
-            attached_files.clear()
+            loaded_paths: list[str] = []
+            context_blocks: list[str] = []
+            for path in list(attached_files):
+                block = format_file_context([path])
+                if block:
+                    loaded_paths.append(path)
+                    context_blocks.append(block)
+            for path in loaded_paths:
+                attached_files.remove(path)
+            if context_blocks:
+                file_context = "\n\n".join(context_blocks)
+                payload = (
+                    f"Context files:\n{file_context}\n\nUser request:\n{user_input}"
+                )
+            elif attached_files:
+                print(
+                    "WARNING: Attached files could not be loaded; "
+                    "sending prompt without file context."
+                )
 
-        turn += 1
         try:
             output_text, new_id = execute_interaction(
                 client=client,
@@ -564,17 +661,29 @@ def run_chat_loop(
                 system_instruction=system_instruction,
                 generation_config=generation_config,
                 stream=stream,
-                previous_interaction_id=previous_interaction_id,
+                previous_interaction_id=session["previous_interaction_id"],
                 enable_tools=enable_tools,
             )
-            if new_id:
-                previous_interaction_id = new_id
-
-            save_session_turn(session_file, turn, user_input, output_text, new_id)
+        except KeyboardInterrupt:
+            print("\nGeneration interrupted. Conversation state preserved.")
+            continue
         except APIError as err:
             sys.stderr.write(f"\nAPI Error from Gemini service: {err}\n")
+            continue
         except Exception as err:
             sys.stderr.write(f"\nUnexpected error: {err}\n")
+            continue
+
+        session["turn"] += 1
+        if new_id:
+            session["previous_interaction_id"] = new_id
+        save_session_turn(
+            session["session_file"],
+            session["turn"],
+            user_input,
+            output_text,
+            new_id,
+        )
 
     return 0
 
@@ -687,6 +796,9 @@ def main() -> int:
             enable_tools=args.tools,
         )
         return 0
+    except KeyboardInterrupt:
+        sys.stderr.write("\nGeneration interrupted.\n")
+        return 130
     except APIError as err:
         sys.stderr.write(f"API Error from Gemini service: {err}\n")
         return 2

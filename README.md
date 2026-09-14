@@ -51,7 +51,7 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ├── prompts/
 │   └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
 └── tests/
-    ├── test_main.py            # CLI and runner unit tests (12 tests)
+    ├── test_main.py            # CLI, runner, and REPL unit tests (16 tests)
     ├── test_tools.py           # Grounded tools unit tests (13 tests)
     ├── test_mcp.py             # MCP client & Gemini docs unit tests (19 tests)
     ├── test_skills.py          # Skills engine unit tests (7 tests)
@@ -116,6 +116,7 @@ python main.py --chat
 
 REPL commands available during a session:
 
+- `/help` — show the command list again.
 - `/build <goal>` — trigger autonomous deep research and construction from within the chat.
 - `/skills` — list all discovered agent skills (local and global).
 - `/skill <name>` — inspect full instructions for a specific agent skill (e.g. `/skill gemini-api-dev`).
@@ -126,9 +127,11 @@ REPL commands available during a session:
 - `/ls [path]` — display repository directory hierarchy.
 - `/test` — run the unit test suite and view actual results.
 - `/file <path>` — dynamically attach a repository file to the active conversation.
-- `/clear` — reset conversational state and start a fresh context.
-- `/history` — view turn count and active interaction ID.
+- `/clear` — reset conversational state and open a new session transcript.
+- `/history` — view turn count, active interaction ID, and session transcript path.
 - `/exit` — quit the console.
+
+Bare slash commands (for example `/build` with no goal) print usage help and are never sent to the model. `Ctrl+C` during generation interrupts the current turn without exiting the REPL.
 
 ### 3. Single-Shot Query with Repository Context (`-f / --file`)
 
@@ -178,7 +181,7 @@ python main.py --no-stream -i "Summarize database requirements."
 
 ## Testing
 
-Run the automated test suite (77 unit tests):
+Run the automated test suite (81 unit tests):
 
 ```bash
 python -m unittest discover -s tests -v
