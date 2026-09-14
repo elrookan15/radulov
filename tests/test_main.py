@@ -105,20 +105,19 @@ class TestRadulovCore(unittest.TestCase):
             load_system_instruction(Path("non_existent_prompt.md"))
 
     def test_format_file_context(self):
-        """Ensure format_file_context reads and demarcates local files correctly."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f1:
-            f1.write("print('hello')\n")
-            f1_path = Path(f1.name)
-
+        """Ensure format_file_context reads repo files and refuses paths outside the root."""
+        sample = Path("tests") / "_tmp_format_file_context.txt"
+        sample.write_text("print('hello')\n", encoding="utf-8")
         try:
             with patch("sys.stderr"):
-                context = format_file_context([f1_path, "non_existent_file.xyz"])
-            self.assertIn(f"--- BEGIN FILE: {f1_path.as_posix()} ---", context)
+                context = format_file_context([str(sample), "non_existent_file.xyz"])
+                outside = format_file_context(["/etc/passwd"])
+            self.assertIn("--- BEGIN FILE: tests/_tmp_format_file_context.txt ---", context)
             self.assertIn("print('hello')", context)
-            self.assertIn(f"--- END FILE: {f1_path.as_posix()} ---", context)
+            self.assertIn("--- END FILE: tests/_tmp_format_file_context.txt ---", context)
+            self.assertEqual(outside, "")
         finally:
-            if f1_path.exists():
-                f1_path.unlink()
+            sample.unlink(missing_ok=True)
 
 
     def test_execute_interaction_streaming(self):
@@ -159,6 +158,55 @@ class TestRadulovCore(unittest.TestCase):
             # Check that previous_interaction_id was passed
             call_kwargs = mock_client.interactions.create.call_args[1]
             self.assertEqual(call_kwargs["previous_interaction_id"], "prev-001")
+
+    def test_execute_interaction_streaming_runs_tools_from_step_start(self):
+        """Streaming completed payloads may omit steps; collect function_call from step.start."""
+        mock_client = MagicMock()
+
+        start = MagicMock()
+        start.event_type = "step.start"
+        start.step.type = "function_call"
+        start.step.name = "read_file"
+        start.step.id = "call_readme"
+        start.step.arguments = {"file_path": "README.md", "max_lines": 2}
+
+        completed = MagicMock()
+        completed.event_type = "interaction.completed"
+        completed.interaction.id = "int-stream-1"
+        completed.interaction.steps = None
+
+        follow_delta = MagicMock()
+        follow_delta.event_type = "step.delta"
+        follow_delta.delta.type = "text"
+        follow_delta.delta.text = "README starts with RADULOV"
+
+        follow_done = MagicMock()
+        follow_done.event_type = "interaction.completed"
+        follow_done.interaction.id = "int-stream-2"
+        follow_done.interaction.steps = []
+
+        mock_client.interactions.create.side_effect = [
+            [start, completed],
+            [follow_delta, follow_done],
+        ]
+
+        with patch("builtins.print"), patch("sys.stderr"):
+            text, int_id = execute_interaction(
+                client=mock_client,
+                model="models/gemini-3.8-flash",
+                user_input="What is the README title?",
+                system_instruction="Prompt",
+                generation_config={"max_output_tokens": 1024},
+                stream=True,
+            )
+
+        self.assertEqual(text, "README starts with RADULOV")
+        self.assertEqual(int_id, "int-stream-2")
+        self.assertEqual(mock_client.interactions.create.call_count, 2)
+        follow_kwargs = mock_client.interactions.create.call_args_list[1].kwargs
+        self.assertEqual(follow_kwargs["previous_interaction_id"], "int-stream-1")
+        self.assertEqual(follow_kwargs["input"][0]["type"], "function_result")
+        self.assertIn("RADULOV", follow_kwargs["input"][0]["result"][0]["text"])
 
     def test_execute_interaction_sync(self):
         """Ensure synchronous interaction mode outputs text directly."""

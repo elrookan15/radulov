@@ -49,11 +49,11 @@ Autonomous engineering intelligence and Gemini client interface configured with 
 ├── prompts/
 │   └── aegis_system_prompt.md  # Core Aegis engineering intelligence system prompt
 └── tests/
-    ├── test_main.py            # CLI and runner unit tests (11 tests)
+    ├── test_main.py            # CLI and runner unit tests (12 tests)
     ├── test_tools.py           # Grounded tools unit tests (13 tests)
-    ├── test_mcp.py             # MCP client & Gemini docs unit tests (13 tests)
+    ├── test_mcp.py             # MCP client & Gemini docs unit tests (14 tests)
     ├── test_skills.py          # Skills engine unit tests (7 tests)
-    └── test_pipeline.py        # Scanner, synthesizer, builder, and research unit tests (6 tests)
+    └── test_pipeline.py        # Scanner, synthesizer, builder, and research unit tests (7 tests)
 ```
 
 ## Prerequisites
@@ -174,7 +174,7 @@ python main.py --no-stream -i "Summarize database requirements."
 
 ## Testing
 
-Run the automated test suite (50 unit tests):
+Run the automated test suite (53 unit tests):
 
 ```bash
 python -m unittest discover -s tests -v
@@ -184,7 +184,7 @@ python main.py --run-tests
 
 ## Security & Best Practices
 
-- **Path Traversal Protection**: `radulov.tools` enforces strict bounds checking, forbidding reads outside the repository root.
+- **Path Traversal Protection**: `radulov.tools` and file attach (`-f` / `/file`) refuse paths outside the repository root. The builder also refuses `.env`, VCS, and credential targets.
 - **Bounded Research Budget**: `radulov.researcher` enforces a hard 120-second timeout ceiling to prevent runaway latency.
 - **Red-Green-Verify Self-Correction**: `radulov.builder` executes tests immediately after writing code; if tests fail, it diagnoses and repairs the defect automatically before completion.
 - **Never commit `.env`**: `.gitignore` is configured to block `.env` and credential files.

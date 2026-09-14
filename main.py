@@ -15,6 +15,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -46,6 +47,8 @@ from radulov.skills import compose_system_instruction
 from radulov.synthesizer import format_options_card, synthesize_dual_options
 from radulov.tools import (
     FUNCTION_DECLARATIONS,
+    REPO_ROOT,
+    _resolve_safe_path,
     collect_function_calls,
     dispatch_tool,
     format_function_result,
@@ -83,7 +86,12 @@ def format_file_context(file_paths: list[str | Path]) -> str:
     context_blocks: list[str] = []
 
     for raw_path in file_paths:
-        path = Path(raw_path)
+        try:
+            path = _resolve_safe_path(raw_path)
+        except PermissionError as err:
+            sys.stderr.write(f"WARNING: {err}\n")
+            continue
+
         if not path.is_file():
             sys.stderr.write(f"WARNING: File not found, skipping: {raw_path}\n")
             continue
@@ -98,8 +106,12 @@ def format_file_context(file_paths: list[str | Path]) -> str:
                 continue
 
             content = path.read_text(encoding="utf-8", errors="replace")
+            try:
+                display = path.relative_to(REPO_ROOT).as_posix()
+            except ValueError:
+                display = path.as_posix()
             context_blocks.append(
-                f"--- BEGIN FILE: {path.as_posix()} ---\n{content}\n--- END FILE: {path.as_posix()} ---"
+                f"--- BEGIN FILE: {display} ---\n{content}\n--- END FILE: {display} ---"
             )
         except Exception as err:
             sys.stderr.write(f"WARNING: Could not read {raw_path}: {err}\n")
@@ -244,6 +256,7 @@ def execute_interaction(
 
         interaction: Any = None
         round_chunks: list[str] = []
+        streamed_steps: list[Any] = []
 
         if stream:
             kwargs["stream"] = True
@@ -256,6 +269,10 @@ def execute_interaction(
                         text = getattr(delta, "text", "")
                         round_chunks.append(text)
                         print(text, end="", flush=True)
+                elif event_type == "step.start":
+                    step = getattr(event, "step", None)
+                    if step is not None:
+                        streamed_steps.append(step)
                 elif event_type == "interaction.completed":
                     interaction = getattr(event, "interaction", None)
                     if interaction and hasattr(interaction, "id"):
@@ -272,6 +289,8 @@ def execute_interaction(
 
         last_text = "".join(round_chunks)
         calls = collect_function_calls(interaction)
+        if not calls and streamed_steps:
+            calls = collect_function_calls(SimpleNamespace(steps=streamed_steps))
         if not calls:
             return last_text, interaction_id
 
@@ -511,7 +530,12 @@ def run_chat_loop(
 
         if user_input.startswith("/file "):
             file_arg = user_input[6:].strip()
-            if Path(file_arg).is_file():
+            try:
+                resolved = _resolve_safe_path(file_arg)
+            except PermissionError as err:
+                print(f"Error: {err}")
+                continue
+            if resolved.is_file():
                 attached_files.append(file_arg)
                 print(f"Attached file: {file_arg}")
             else:

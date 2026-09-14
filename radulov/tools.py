@@ -169,25 +169,22 @@ def search_code(query: str, sub_dir: str = ".") -> str:
         return f"Error searching code for '{query}': {err}"
 
 
-def run_tests(test_dir: str = "tests", timeout_sec: int = 30) -> str:
-    """Execute repository unit tests and return the actual test execution output.
-
-    Args:
-        test_dir: Subdirectory containing unit tests.
-        timeout_sec: Maximum test execution time in seconds.
-
-    Returns:
-        Actual test execution results including pass/fail status and tracebacks.
-    """
+def _run_unittest(repo_root: Path, test_dir: str = "tests", timeout_sec: int = 30) -> str:
+    """Run unittest discovery under an explicit repository root."""
     try:
-        target = _resolve_safe_path(test_dir)
+        root = repo_root.resolve()
+        target = (root / test_dir).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            return f"Error: Access denied: '{test_dir}' is outside repository root."
         if not target.is_dir():
             return f"Error: Test directory not found: '{test_dir}'"
 
-        cmd = [sys.executable, "-m", "unittest", "discover", "-s", test_dir, "-v"]
+        cmd = [sys.executable, "-m", "unittest", "discover", "-s", str(test_dir), "-v"]
         result = subprocess.run(
             cmd,
-            cwd=str(REPO_ROOT),
+            cwd=str(root),
             capture_output=True,
             text=True,
             timeout=timeout_sec,
@@ -203,6 +200,19 @@ def run_tests(test_dir: str = "tests", timeout_sec: int = 30) -> str:
         return f"Error: Tests timed out after {timeout_sec} seconds."
     except Exception as err:
         return f"Error running tests in '{test_dir}': {err}"
+
+
+def run_tests(test_dir: str = "tests", timeout_sec: int = 30) -> str:
+    """Execute repository unit tests and return the actual test execution output.
+
+    Args:
+        test_dir: Subdirectory containing unit tests.
+        timeout_sec: Maximum test execution time in seconds.
+
+    Returns:
+        Actual test execution results including pass/fail status and tracebacks.
+    """
+    return _run_unittest(REPO_ROOT, test_dir=test_dir, timeout_sec=timeout_sec)
 
 
 from radulov.mcp import get_gemini_doc, search_gemini_docs

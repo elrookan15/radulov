@@ -90,6 +90,21 @@ class TestRadulovMCP(unittest.TestCase):
         res = client.call_tool("gemini_get_doc", {"chunk_id": "chunk_01"})
         self.assertEqual(res.get("text"), "First")
 
+    @patch("urllib.request.urlopen")
+    def test_list_tools_sse_response(self, mock_urlopen):
+        """Ensure list_tools parses SSE JSON-RPC the same way call_tool does."""
+        mock_response = MagicMock()
+        sse_payload = (
+            "event: message\n"
+            'data: {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "gemini_search_docs"}]}}\n\n'
+        )
+        mock_response.read.return_value = sse_payload.encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        client = MCPClient("https://gemini-api-docs-mcp.dev")
+        tools = client.list_tools()
+        self.assertEqual(tools, [{"name": "gemini_search_docs"}])
+
     def test_sse_data_strips_only_one_leading_space(self):
         """SSE data fields drop one leading space and keep remaining whitespace."""
         payloads = list(

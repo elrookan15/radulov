@@ -22,9 +22,21 @@ except ImportError:
 
 
 from radulov import DEFAULT_MODEL
-from radulov.tools import run_tests
+from radulov.tools import _run_unittest
 
 BLOCKED_WRITE_DIR_NAMES = {".git", ".venv", "venv", ".radulov"}
+BLOCKED_WRITE_NAMES = {
+    ".env",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "credentials.json",
+    "service-account.json",
+}
 BLOCKED_WRITE_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
 
 
@@ -34,7 +46,7 @@ def _is_blocked_write_path(rel_path: str) -> bool:
     if any(part in BLOCKED_WRITE_DIR_NAMES for part in path.parts):
         return True
     name = path.name
-    if name == ".env" or name.startswith(".env."):
+    if name in BLOCKED_WRITE_NAMES or name.startswith(".env."):
         return True
     return path.suffix.lower() in BLOCKED_WRITE_SUFFIXES
 
@@ -183,7 +195,7 @@ def execute_autonomous_build(
 
     # Run verification tests
     print("\n[Aegis Builder] Executing automated verification suite (Red-Green-Verify)...")
-    test_results = run_tests("tests")
+    test_results = _run_unittest(root, "tests")
     print(test_results)
 
     # Self-correction loop if tests fail
@@ -214,7 +226,7 @@ def execute_autonomous_build(
                 for f in written_files:
                     print(f"  * Repaired: {f}")
 
-                test_results = run_tests("tests")
+                test_results = _run_unittest(root, "tests")
                 print(test_results)
             except Exception as err:
                 sys.stderr.write(f"Repair attempt {attempt} failed to parse: {err}\n")

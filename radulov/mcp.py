@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 from typing import Any
@@ -140,9 +141,15 @@ class MCPClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_sec) as response:
-                result_json = json.loads(response.read().decode("utf-8", errors="replace"))
-                return result_json.get("result", {}).get("tools", [])
-        except Exception:
+                resp_str = response.read().decode("utf-8", errors="replace")
+                result_json = self._parse_response_json(resp_str)
+                if "error" in result_json:
+                    sys.stderr.write(f"WARNING: MCP tools/list error: {result_json['error']}\n")
+                    return []
+                tools = result_json.get("result", {}).get("tools", [])
+                return tools if isinstance(tools, list) else []
+        except Exception as err:
+            sys.stderr.write(f"WARNING: MCP tools/list failed: {err}\n")
             return []
 
 
