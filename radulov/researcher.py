@@ -20,6 +20,7 @@ except ImportError:
 
 
 from radulov import DEFAULT_MODEL
+from radulov.retry import generate_content_with_retry
 
 RESEARCH_PROMPT_TEMPLATE = """You are the Lead Cyber-Architect conducting deep research for RADULOV.
 Your goal is to investigate modern 2026 production-grade best practices, libraries, and architectural patterns for the following user request within the context of this specific repository.
@@ -50,7 +51,8 @@ def _invoke_research(
     """Invoke Gemini with Search Grounding or thinking fallback."""
     # Attempt 1: Search Grounded Generation
     try:
-        response = client.models.generate_content(
+        response = generate_content_with_retry(
+            client,
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -65,7 +67,8 @@ def _invoke_research(
 
     # Attempt 2: High-Reasoning Fallback
     try:
-        response = client.models.generate_content(
+        response = generate_content_with_retry(
+            client,
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(

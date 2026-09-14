@@ -22,6 +22,7 @@ except ImportError:
 
 
 from radulov import DEFAULT_MODEL
+from radulov.retry import generate_content_with_retry
 from radulov.tools import _run_unittest
 
 BLOCKED_WRITE_DIR_NAMES = {".git", ".venv", "venv", ".radulov"}
@@ -87,6 +88,7 @@ CONSTRUCTION MANDATES:
   ],
   "build_notes": "<summary of what was built and security measures applied>"
 }}
+5. Use this repository's existing unittest suite. Do not import pytest or add third-party test frameworks unless they already appear in pyproject.toml / requirements.txt.
 """
 
 REPAIR_PROMPT = """The unit tests failed after applying the patch. Self-correct the implementation according to the Aegis Red-Green-Verify protocol.
@@ -174,14 +176,25 @@ def execute_autonomous_build(
         codebase_summary=codebase_summary,
     )
 
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            thinking_config=types.ThinkingConfig(thinking_budget=16384),
-        ),
-    )
+    try:
+        response = generate_content_with_retry(
+            client,
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(thinking_budget=16384),
+            ),
+        )
+    except Exception as err:
+        return {
+            "status": "FAILED",
+            "error": f"Code construction failed: {err}",
+            "written_files": [],
+            "test_results": "",
+            "build_notes": "",
+            "repair_attempts": 0,
+        }
 
     if not response or not response.text:
         return {"status": "FAILED", "error": "Empty model response during code construction."}
@@ -189,6 +202,10 @@ def execute_autonomous_build(
     build_data = _extract_builder_json(response.text)
     files_list = build_data.get("files", [])
     written_files = _write_files_to_disk(files_list, root)
+    all_written: list[str] = []
+    for path in written_files:
+        if path not in all_written:
+            all_written.append(path)
 
     for f in written_files:
         print(f"  + Generated: {f}")
@@ -209,7 +226,8 @@ def execute_autonomous_build(
             previous_files_json=json.dumps(files_list, indent=2),
         )
 
-        repair_resp = client.models.generate_content(
+        repair_resp = generate_content_with_retry(
+            client,
             model=model,
             contents=repair_prompt,
             config=types.GenerateContentConfig(
@@ -224,6 +242,8 @@ def execute_autonomous_build(
                 files_list = repaired_data.get("files", [])
                 written_files = _write_files_to_disk(files_list, root)
                 for f in written_files:
+                    if f not in all_written:
+                        all_written.append(f)
                     print(f"  * Repaired: {f}")
 
                 test_results = _run_unittest(root, "tests")
@@ -234,7 +254,7 @@ def execute_autonomous_build(
     passed = _tests_passed(test_results)
     return {
         "status": "SUCCESS" if passed else "COMPLETED_WITH_TEST_WARNINGS",
-        "written_files": written_files,
+        "written_files": all_written,
         "test_results": test_results,
         "build_notes": build_data.get("build_notes", ""),
         "repair_attempts": attempt,
