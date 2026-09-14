@@ -18,6 +18,7 @@ except ImportError:
     types = None  # type: ignore[assignment]
 
 from radulov import DEFAULT_MODEL
+from radulov.retry import generate_content_with_retry
 
 
 SYNTHESIS_PROMPT = """You are the Lead Systems Architect for RADULOV.
@@ -91,7 +92,8 @@ def synthesize_dual_options(
         research_report=research_report,
     )
 
-    response = client.models.generate_content(
+    response = generate_content_with_retry(
+        client,
         model=model,
         contents=prompt,
         config=types.GenerateContentConfig(
